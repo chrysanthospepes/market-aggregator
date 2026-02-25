@@ -25,6 +25,7 @@ class ProductAdmin(admin.ModelAdmin):
         "brand_normalized",
         "quantity_value",
         "quantity_unit",
+        "image",
         "category",
     ]
     list_filter = ["quantity_unit", "category"]

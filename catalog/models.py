@@ -77,6 +77,7 @@ class Product(models.Model):
         blank=True,
         db_index=True,
     )
+    image = models.FileField(upload_to="products/", null=True, blank=True)
     category = models.ForeignKey(
         Category,
         on_delete=models.PROTECT,

@@ -10,6 +10,7 @@ from rapidfuzz import fuzz
 
 from catalog.category_mapping import resolve_category_id_for_source
 from catalog.models import Category, Product
+from catalog.services.product_images import ensure_product_image_from_listing
 from comparison.models import MatchReview
 from ingestion.models import StoreListing
 from matching.normalizer import (
@@ -180,9 +181,11 @@ def _best_candidate(listing: StoreListing) -> Optional[CandidateScore]:
 
 def _set_listing_product(listing: StoreListing, product: Product) -> None:
     if listing.product_id == product.id:
+        ensure_product_image_from_listing(product=product, listing=listing)
         return
     listing.product = product
     listing.save(update_fields=["product"])
+    ensure_product_image_from_listing(product=product, listing=listing)
     MatchReview.objects.filter(store_listing=listing).delete()
 
 

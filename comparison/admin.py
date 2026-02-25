@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.db import transaction
 
 from comparison.models import MatchReview
+from catalog.services.product_images import ensure_product_image_from_listing
 from matching.matcher import create_forced_product_for_listing
 
 
@@ -33,6 +34,7 @@ class MatchReviewAdmin(admin.ModelAdmin):
                 listing = review.store_listing
                 listing.product = review.candidate_product
                 listing.save(update_fields=["product"])
+                ensure_product_image_from_listing(product=listing.product, listing=listing)
 
                 if review.status != MatchReview.Status.APPROVED:
                     review.status = MatchReview.Status.APPROVED
@@ -60,6 +62,7 @@ class MatchReviewAdmin(admin.ModelAdmin):
                     new_product = create_forced_product_for_listing(listing)
                     listing.product = new_product
                     listing.save(update_fields=["product"])
+                    ensure_product_image_from_listing(product=listing.product, listing=listing)
                     listing_to_new_product[listing.id] = new_product.id
                     forced_new_products += 1
                     auto_rejected += MatchReview.objects.filter(
@@ -92,6 +95,7 @@ class MatchReviewAdmin(admin.ModelAdmin):
                 listing = obj.store_listing
                 listing.product = obj.candidate_product
                 listing.save(update_fields=["product"])
+                ensure_product_image_from_listing(product=listing.product, listing=listing)
                 self._reject_pending_for_listing(obj)
             elif (
                 change
@@ -101,6 +105,7 @@ class MatchReviewAdmin(admin.ModelAdmin):
                 listing = obj.store_listing
                 listing.product = create_forced_product_for_listing(listing)
                 listing.save(update_fields=["product"])
+                ensure_product_image_from_listing(product=listing.product, listing=listing)
                 MatchReview.objects.filter(
                     store_listing=listing,
                     status=MatchReview.Status.PENDING,
