@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Products</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 960px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      line-height: 1.4;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.6rem;
+      border-bottom: 1px solid #ddd;
+    }
+    a {
+      color: #0a58ca;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <h1>Available Products</h1>
+
+  {% if products %}
+    <table>
+      <thead>
+        <tr>
+          <th>
+            <a href="{% if sort == 'name' %}?sort=unit_price_asc{% else %}?sort=name{% endif %}">
+              Product
+            </a>
+          </th>
+          <th>Category</th>
+          <th>
+            <a href="?sort=unit_price_asc">Lowest Unit Price</a>
+          </th>
+          <th>Active Listings</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for product in products %}
+          <tr>
+            <td>
+              <a href="{% url 'product-detail' product.id %}">{{ product.canonical_name }}</a>
+            </td>
+            <td>{% if product.category %}{{ product.category.name }}{% else %}-{% endif %}</td>
+            <td>
+              {% if product.lowest_final_unit_price is not None %}
+                {{ product.lowest_final_unit_price|floatformat:4 }}
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td>{{ product.active_listing_count }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>No products available yet.</p>
+  {% endif %}
+</body>
+</html>

@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from django.contrib.admin.sites import AdminSite
 from django.test import RequestFactory
+from django.urls import reverse
 from catalog.models import Category, CategoryAlias, Product, Store
 from comparison.admin import MatchReviewAdmin
 from comparison.models import MatchReview
@@ -130,6 +131,126 @@ class ComparisonApiTests(TestCase):
         self.assertEqual(payload["product"]["id"], product.id)
         self.assertEqual(len(payload["offers"]), 1)
         self.assertEqual(payload["offers"][0]["store"], "sklavenitis")
+
+
+class ComparisonHtmlViewsTests(TestCase):
+    def test_product_list_shows_products_with_active_listings_only(self):
+        store = Store.objects.create(name="sklavenitis")
+        visible_product = Product.objects.create(canonical_name="Ντομάτα 1kg")
+        hidden_product = Product.objects.create(canonical_name="Μήλο 1kg")
+
+        StoreListing.objects.create(
+            store=store,
+            store_sku="sku-visible",
+            store_name="Ντομάτα 1kg",
+            url="https://example.com/visible",
+            final_price=Decimal("1.00"),
+            product=visible_product,
+            is_active=True,
+        )
+        StoreListing.objects.create(
+            store=store,
+            store_sku="sku-hidden",
+            store_name="Μήλο 1kg",
+            url="https://example.com/hidden",
+            final_price=Decimal("1.20"),
+            product=hidden_product,
+            is_active=False,
+        )
+
+        response = self.client.get(reverse("product-list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Ντομάτα 1kg")
+        self.assertNotContains(response, "Μήλο 1kg")
+        self.assertContains(response, reverse("product-detail", args=[visible_product.id]))
+
+    def test_product_detail_shows_linked_active_listings(self):
+        store_a = Store.objects.create(name="sklavenitis")
+        store_b = Store.objects.create(name="mymarket")
+        product = Product.objects.create(canonical_name="Αγγούρι 1τεμ")
+
+        StoreListing.objects.create(
+            store=store_a,
+            store_sku="sku-a",
+            store_name="Αγγούρι Σκλαβενίτης",
+            url="https://example.com/a",
+            final_price=Decimal("0.90"),
+            product=product,
+            is_active=True,
+            offer="offer",
+        )
+        StoreListing.objects.create(
+            store=store_b,
+            store_sku="sku-b",
+            store_name="Αγγούρι Mymarket",
+            url="https://example.com/b",
+            final_price=Decimal("0.85"),
+            product=product,
+            is_active=True,
+        )
+        StoreListing.objects.create(
+            store=store_b,
+            store_sku="sku-c",
+            store_name="Αγγούρι inactive",
+            url="https://example.com/c",
+            final_price=Decimal("0.70"),
+            product=product,
+            is_active=False,
+        )
+
+        response = self.client.get(reverse("product-detail", args=[product.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Αγγούρι Σκλαβενίτης")
+        self.assertContains(response, "Αγγούρι Mymarket")
+        self.assertNotContains(response, "Αγγούρι inactive")
+        self.assertContains(response, "Back to products")
+
+    def test_product_list_can_sort_by_lowest_final_unit_price(self):
+        store = Store.objects.create(name="sklavenitis")
+        low = Product.objects.create(canonical_name="Low unit price")
+        high = Product.objects.create(canonical_name="High unit price")
+        no_unit = Product.objects.create(canonical_name="No unit price")
+
+        StoreListing.objects.create(
+            store=store,
+            store_sku="low",
+            store_name="Low listing",
+            url="https://example.com/low",
+            final_price=Decimal("2.50"),
+            final_unit_price=Decimal("1.5000"),
+            product=low,
+            is_active=True,
+        )
+        StoreListing.objects.create(
+            store=store,
+            store_sku="high",
+            store_name="High listing",
+            url="https://example.com/high",
+            final_price=Decimal("2.80"),
+            final_unit_price=Decimal("3.2000"),
+            product=high,
+            is_active=True,
+        )
+        StoreListing.objects.create(
+            store=store,
+            store_sku="none",
+            store_name="None listing",
+            url="https://example.com/none",
+            final_price=Decimal("1.20"),
+            product=no_unit,
+            is_active=True,
+        )
+
+        response = self.client.get(reverse("product-list"), {"sort": "unit_price_asc"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "1.5000")
+        self.assertContains(response, "3.2000")
+        content = response.content.decode("utf-8")
+        self.assertLess(content.index("Low unit price"), content.index("High unit price"))
+        self.assertLess(content.index("High unit price"), content.index("No unit price"))
 
 
 class MatchReviewAdminTests(TestCase):

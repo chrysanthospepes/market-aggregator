@@ -1,10 +1,73 @@
 from __future__ import annotations
 
+from django.db.models import Case, Count, IntegerField, Min, Q, Value, When
 from django.http import JsonResponse
-from django.shortcuts import get_object_or_404
+from django.shortcuts import get_object_or_404, render
 
 from catalog.models import Product
 from ingestion.models import StoreListing
+
+
+def product_list(request):
+    sort = request.GET.get("sort", "name")
+    products = (
+        Product.objects.select_related("category")
+        .annotate(
+            active_listing_count=Count(
+                "store_listings",
+                filter=Q(store_listings__is_active=True),
+                distinct=True,
+            ),
+            lowest_final_unit_price=Min(
+                "store_listings__final_unit_price",
+                filter=Q(
+                    store_listings__is_active=True,
+                    store_listings__final_unit_price__isnull=False,
+                ),
+            ),
+            no_unit_price_sort=Case(
+                When(lowest_final_unit_price__isnull=True, then=Value(1)),
+                default=Value(0),
+                output_field=IntegerField(),
+            )
+        )
+        .filter(active_listing_count__gt=0)
+    )
+
+    if sort == "unit_price_asc":
+        products = products.order_by(
+            "no_unit_price_sort",
+            "lowest_final_unit_price",
+            "canonical_name",
+        )
+    else:
+        products = products.order_by("canonical_name")
+
+    return render(
+        request,
+        "comparison/product_list.html",
+        {
+            "products": products,
+            "sort": sort,
+        },
+    )
+
+
+def product_detail(request, product_id: int):
+    product = get_object_or_404(Product.objects.select_related("category"), id=product_id)
+    listings = (
+        StoreListing.objects.select_related("store")
+        .filter(product=product, is_active=True)
+        .order_by("store__name", "store_name")
+    )
+    return render(
+        request,
+        "comparison/product_detail.html",
+        {
+            "product": product,
+            "listings": listings,
+        },
+    )
 
 
 def product_offers(request, product_id: int):

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ product.canonical_name }}</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 960px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      line-height: 1.4;
+    }
+    .meta {
+      color: #555;
+      margin-bottom: 1rem;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.6rem;
+      border-bottom: 1px solid #ddd;
+      vertical-align: top;
+    }
+    a {
+      color: #0a58ca;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <p><a href="{% url 'product-list' %}">Back to products</a></p>
+  <h1>{{ product.canonical_name }}</h1>
+
+  <p class="meta">
+    Category:
+    {% if product.category %}
+      {{ product.category.name }} ({{ product.category.slug }})
+    {% else %}
+      -
+    {% endif %}
+  </p>
+
+  {% if listings %}
+    <table>
+      <thead>
+        <tr>
+          <th>Store</th>
+          <th>Listing Name</th>
+          <th>Final Price</th>
+          <th>Unit Price</th>
+          <th>Offer</th>
+          <th>Last Seen</th>
+          <th>Link</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for listing in listings %}
+          <tr>
+            <td>{{ listing.store.name }}</td>
+            <td>{{ listing.store_name }}</td>
+            <td>{% if listing.final_price %}{{ listing.final_price }}{% else %}-{% endif %}</td>
+            <td>{% if listing.final_unit_price %}{{ listing.final_unit_price }}{% else %}-{% endif %}</td>
+            <td>{% if listing.offer %}{{ listing.offer }}{% else %}-{% endif %}</td>
+            <td>{{ listing.last_seen_at }}</td>
+            <td>
+              {% if listing.url %}
+                <a href="{{ listing.url }}" target="_blank" rel="noopener noreferrer">Open</a>
+              {% else %}
+                -
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>No active listings linked to this product.</p>
+  {% endif %}
+</body>
+</html>
