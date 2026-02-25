@@ -21,6 +21,7 @@ pip-wheel-metadata/
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
+test.sqlite3
 media/
 staticfiles/
 

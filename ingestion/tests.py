@@ -1,3 +1,132 @@
 from django.test import TestCase
 
-# Create your tests here.
+import csv
+import os
+import tempfile
+
+from django.core.management import call_command
+
+from ingestion.models import CrawlerRun, PriceHistory, StoreListing
+
+
+class ImportPipelineTests(TestCase):
+    def _write_csv(self, rows):
+        headers = []
+        for row in rows:
+            for key in row.keys():
+                if key not in headers:
+                    headers.append(key)
+
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, newline="")
+        self.addCleanup(lambda: os.path.exists(tmp.name) and os.unlink(tmp.name))
+        writer = csv.DictWriter(tmp, fieldnames=headers)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+        tmp.close()
+        return tmp.name
+
+    def test_importing_same_csv_twice_updates_without_duplicates(self):
+        first_rows = [
+            {
+                "name": "ΦΡΕΣΚΟΥΛΗΣ ΙΤΑΛΙΚΗ ΣΑΛΑΤΑ 425gr",
+                "sku": "sku-1",
+                "brand": "Φρεσκούλης",
+                "root_category": "freska-froyta-lachanika",
+                "url": "https://example.com/a",
+                "final_price": "2.10",
+                "final_unit_price": "4.9412",
+                "offer": "true",
+            },
+            {
+                "name": "Ντομάτες 1kg",
+                "sku": "sku-2",
+                "brand": "",
+                "root_category": "freska-froyta-lachanika",
+                "url": "https://example.com/b",
+                "final_price": "1.99",
+                "offer": "false",
+            },
+        ]
+        second_rows = [
+            {
+                "name": "ΦΡΕΣΚΟΥΛΗΣ ΙΤΑΛΙΚΗ ΣΑΛΑΤΑ 425gr",
+                "sku": "sku-1",
+                "brand": "Φρεσκούλης",
+                "root_category": "freska-froyta-lachanika",
+                "url": "https://example.com/a",
+                "final_price": "1.95",
+                "final_unit_price": "4.5882",
+                "offer": "true",
+            },
+            {
+                "name": "Ντομάτες 1kg",
+                "sku": "sku-2",
+                "brand": "",
+                "root_category": "freska-froyta-lachanika",
+                "url": "https://example.com/b",
+                "final_price": "1.99",
+                "offer": "false",
+            },
+        ]
+
+        first_file = self._write_csv(first_rows)
+        second_file = self._write_csv(second_rows)
+
+        call_command("import_store_csv", "--store", "sklavenitis", "--file", first_file)
+        call_command("import_store_csv", "--store", "sklavenitis", "--file", second_file)
+
+        self.assertEqual(StoreListing.objects.count(), 2)
+        updated_listing = StoreListing.objects.get(store_sku="sku-1")
+        self.assertEqual(str(updated_listing.final_price), "1.95")
+
+        self.assertEqual(PriceHistory.objects.count(), 4)
+        self.assertEqual(CrawlerRun.objects.count(), 2)
+        self.assertTrue(all(run.status == CrawlerRun.Status.SUCCESS for run in CrawlerRun.objects.all()))
+
+    def test_missing_listings_are_marked_inactive_on_new_run(self):
+        first_rows = [
+            {
+                "name": "Μαρούλι 1τεμ",
+                "sku": "sku-10",
+                "root_category": "frouta-lachanika",
+                "url": "https://example.com/l1",
+                "final_price": "0.99",
+                "offer": "false",
+            },
+            {
+                "name": "Αγγούρι 1τεμ",
+                "sku": "sku-11",
+                "root_category": "frouta-lachanika",
+                "url": "https://example.com/l2",
+                "final_price": "0.79",
+                "offer": "false",
+            },
+        ]
+        second_rows = [
+            {
+                "name": "Μαρούλι 1τεμ",
+                "sku": "sku-10",
+                "root_category": "frouta-lachanika",
+                "url": "https://example.com/l1",
+                "final_price": "0.95",
+                "offer": "true",
+            },
+        ]
+
+        first_file = self._write_csv(first_rows)
+        second_file = self._write_csv(second_rows)
+
+        call_command("import_store_csv", "--store", "mymarket", "--file", first_file)
+        call_command("import_store_csv", "--store", "mymarket", "--file", second_file)
+
+        still_active = StoreListing.objects.get(store_sku="sku-10")
+        now_inactive = StoreListing.objects.get(store_sku="sku-11")
+        self.assertTrue(still_active.is_active)
+        self.assertFalse(now_inactive.is_active)
+
+        self.assertEqual(PriceHistory.objects.count(), 3)
+        runs = list(CrawlerRun.objects.filter(store__name="mymarket").order_by("started_at"))
+        self.assertEqual(len(runs), 2)
+        self.assertEqual([run.items_seen for run in runs], [2, 1])
+        self.assertTrue(all(run.status == CrawlerRun.Status.SUCCESS for run in runs))
