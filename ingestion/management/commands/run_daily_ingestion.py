@@ -88,6 +88,13 @@ class Command(BaseCommand):
             all_rows.extend(asdict(row) for row in crawled_rows)
 
         rows = _dedupe_rows(all_rows)
+        deduped_count = len(all_rows) - len(rows)
+        if deduped_count > 0:
+            self.stdout.write(
+                f"Deduped {deduped_count} duplicate rows (kept {len(rows)} unique rows)."
+            )
+        else:
+            self.stdout.write(f"Prepared {len(rows)} unique rows for import.")
         if not rows:
             raise CommandError("Crawler returned zero rows; refusing to import.")
 

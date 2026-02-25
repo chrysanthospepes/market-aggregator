@@ -1,4 +1,5 @@
 from django.test import TestCase
+from django.utils import timezone
 
 import csv
 import os
@@ -6,7 +7,10 @@ import tempfile
 
 from django.core.management import call_command
 
+from catalog.models import Product
+from comparison.models import MatchReview
 from ingestion.models import CrawlerRun, PriceHistory, StoreListing
+from ingestion.services.importer import import_rows_for_store
 
 
 class ImportPipelineTests(TestCase):
@@ -130,3 +134,48 @@ class ImportPipelineTests(TestCase):
         self.assertEqual(len(runs), 2)
         self.assertEqual([run.items_seen for run in runs], [2, 1])
         self.assertTrue(all(run.status == CrawlerRun.Status.SUCCESS for run in runs))
+
+    def test_run_matcher_from_import_skips_already_linked_listings(self):
+        first_summary = import_rows_for_store(
+            store_name="sklavenitis",
+            rows=[
+                {
+                    "name": "Μήλα Gala Εισαγωγής",
+                    "sku": "sku-30",
+                    "root_category": "freska-froyta-lachanika",
+                    "url": "https://example.com/sku-30",
+                    "final_price": "2.50",
+                }
+            ],
+            snapshot_at=timezone.now(),
+            run_matcher=True,
+            source_label="test:first",
+        )
+        listing = StoreListing.objects.get(store_sku="sku-30")
+        self.assertIsNotNone(listing.product_id)
+        self.assertEqual(first_summary.matcher_processed, 1)
+
+        second_summary = import_rows_for_store(
+            store_name="sklavenitis",
+            rows=[
+                {
+                    "name": "Μήλα Gala Εισαγωγής",
+                    "sku": "sku-30",
+                    "root_category": "freska-froyta-lachanika",
+                    "url": "https://example.com/sku-30",
+                    "final_price": "2.40",
+                }
+            ],
+            snapshot_at=timezone.now(),
+            run_matcher=True,
+            source_label="test:second",
+        )
+        listing.refresh_from_db()
+
+        self.assertEqual(second_summary.updated, 1)
+        self.assertEqual(second_summary.matcher_processed, 0)
+        self.assertEqual(second_summary.matcher_auto_matched, 0)
+        self.assertEqual(second_summary.matcher_review_created, 0)
+        self.assertEqual(second_summary.matcher_created_products, 0)
+        self.assertEqual(Product.objects.count(), 1)
+        self.assertEqual(MatchReview.objects.count(), 0)
