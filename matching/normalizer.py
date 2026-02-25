@@ -13,6 +13,10 @@ _QUANTITY_RE = re.compile(
     r"(?<!\d)(\d+(?:[.,]\d+)?)\s*(kg|kgr|kilo|g|gr|gram|ml|l|lt|tem|tmx|τεμ|τμχ|τεμαχιο|τεμαχια|κιλο|κιλα|κιλου|γρ|γραμ|λιτρο|λιτρα|λιτρου)\b",
     re.IGNORECASE,
 )
+_INLINE_QUANTITY_TOKEN_RE = re.compile(
+    r"^\d+(?:[.,]\d+)?(?:kg|kgr|kilo|g|gr|gram|ml|l|lt|tem|tmx|τεμ|τμχ|τεμαχιο|τεμαχια|κιλο|κιλα|κιλου|γρ|γραμ|λιτρο|λιτρα|λιτρου)$",
+    re.IGNORECASE,
+)
 
 _STOPWORDS = {
     "και",
@@ -45,6 +49,14 @@ _BRAND_VARIANTS = {
     "φρεσκουλης": "freskoulis",
     "φρεσκουλησ": "freskoulis",
     "freskoulis": "freskoulis",
+}
+
+_TOKEN_CANONICAL_MAP = {
+    # Common orthographic variance in Greek product titles.
+    "κλασσικη": "κλασικη",
+    "κλασσικος": "κλασικος",
+    "κλασσικο": "κλασικο",
+    "κλασσικα": "κλασικα",
 }
 
 
@@ -137,9 +149,12 @@ def tokenize_name(value: str) -> list[str]:
     normalized = normalize_text(value or "")
     tokens = []
     for token in normalized.split():
+        token = _TOKEN_CANONICAL_MAP.get(token, token)
         if token in _STOPWORDS:
             continue
         if token.isnumeric():
+            continue
+        if _INLINE_QUANTITY_TOKEN_RE.match(token):
             continue
         if token in {"g", "gr", "kg", "ml", "l", "lt", "τεμ", "tem", "tmx"}:
             continue

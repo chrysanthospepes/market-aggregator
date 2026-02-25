@@ -19,12 +19,14 @@ from matching.normalizer import (
     normalize_brand,
     normalize_listing_text,
     normalize_text,
+    tokenize_name,
 )
 
 
-AUTO_TIER_A_SIMILARITY = 0.92
-AUTO_TIER_B_SIMILARITY = 0.95
+AUTO_TIER_A_SIMILARITY = 0.90
+AUTO_TIER_B_SIMILARITY = 0.93
 MANUAL_REVIEW_MIN_SCORE = 0.80
+MAX_CANDIDATES = 1200
 
 
 @dataclass
@@ -40,22 +42,92 @@ class CandidateScore:
     product: Product
     score: Decimal
     name_similarity: float
-    brand_exact: bool
-    quantity_exact: bool
+    token_overlap: float
+    brand_score: float
+    quantity_score: float
+    category_score: float
+    category_compatible: bool
+    category_resolved: bool
 
 
-def _to_ratio(left: str, right: str) -> float:
-    if not left or not right:
+def _token_overlap_ratio(left: str, right: str) -> float:
+    left_tokens = set(tokenize_name(left))
+    right_tokens = set(tokenize_name(right))
+    if not left_tokens or not right_tokens:
         return 0.0
-    return fuzz.token_sort_ratio(left, right) / 100.0
+
+    smaller = min(len(left_tokens), len(right_tokens))
+    if smaller < 3:
+        return 0.0
+
+    overlap = len(left_tokens & right_tokens) / smaller
+    if overlap < 0.67:
+        return 0.0
+    return overlap
 
 
-def _quantity_exact(left: Optional[Quantity], product: Product) -> bool:
-    if left is None:
-        return False
-    if product.quantity_value is None or not product.quantity_unit:
-        return False
-    return left.value == product.quantity_value and left.unit == product.quantity_unit
+def _to_decimal_score(value: float) -> Decimal:
+    return Decimal(str(round(value, 6)))
+
+
+def _brand_similarity_score(
+    listing_brand: Optional[str],
+    product_brand: Optional[str],
+    listing_name: str,
+) -> float:
+    if not listing_brand and not product_brand:
+        return 0.40
+    if not listing_brand or not product_brand:
+        if product_brand and product_brand in listing_name:
+            # Infer brand presence from listing name when explicit brand is missing.
+            return 0.90
+        return 0.45
+    if listing_brand == product_brand:
+        return 1.0
+    return max(
+        fuzz.ratio(listing_brand, product_brand) / 100.0,
+        fuzz.partial_ratio(listing_brand, product_brand) / 100.0,
+    )
+
+
+def _quantity_similarity_score(left: Optional[Quantity], product: Product) -> float:
+    if left is None and (product.quantity_value is None or not product.quantity_unit):
+        return 0.60
+    if left is None or product.quantity_value is None or not product.quantity_unit:
+        return 0.45
+    if left.unit != product.quantity_unit:
+        return 0.0
+    if left.value == product.quantity_value:
+        return 1.0
+
+    larger = max(left.value, product.quantity_value)
+    if larger == 0:
+        return 0.0
+    diff_ratio = float(abs(left.value - product.quantity_value) / larger)
+    if diff_ratio <= 0.02:
+        return 0.90
+    if diff_ratio <= 0.08:
+        return 0.70
+    if diff_ratio <= 0.20:
+        return 0.40
+    return 0.0
+
+
+def _category_context_for_listing(
+    listing: StoreListing,
+    product: Product,
+) -> tuple[float, bool, bool]:
+    listing_category_id = _resolve_listing_category_id(listing)
+    if listing_category_id is None:
+        if listing.source_category:
+            return 0.65, True, False
+        return 0.80, True, False
+
+    if product.category_id is None:
+        return 0.70, True, True
+    if product.category_id == listing_category_id:
+        return 1.0, True, True
+    return 0.0, False, True
 
 
 def _score_candidate(listing: StoreListing, product: Product) -> CandidateScore:
@@ -64,49 +136,88 @@ def _score_candidate(listing: StoreListing, product: Product) -> CandidateScore:
     product_brand = normalize_brand(product.brand_normalized)
     product_name_norm = normalize_text(product_name)
 
-    name_similarity = _to_ratio(listing_norm.normalized_name, product_name_norm)
-    brand_exact = bool(
-        listing_norm.brand_normalized
-        and product_brand
-        and listing_norm.brand_normalized == product_brand
+    token_sort = fuzz.token_sort_ratio(listing_norm.normalized_name, product_name_norm) / 100.0
+    token_set = fuzz.token_set_ratio(listing_norm.normalized_name, product_name_norm) / 100.0
+    token_overlap = _token_overlap_ratio(listing_norm.normalized_name, product_name_norm)
+    name_similarity = max(token_sort, token_set, token_overlap)
+    brand_score = _brand_similarity_score(
+        listing_brand=listing_norm.brand_normalized,
+        product_brand=product_brand,
+        listing_name=listing_norm.normalized_name,
     )
-    quantity_exact = _quantity_exact(listing_norm.quantity, product=product)
+    quantity_score = _quantity_similarity_score(listing_norm.quantity, product=product)
+    category_score, category_compatible, category_resolved = _category_context_for_listing(
+        listing=listing,
+        product=product,
+    )
 
-    score = (Decimal("0.35") * Decimal(int(brand_exact))) + (
-        Decimal("0.30") * Decimal(int(quantity_exact))
-    ) + (Decimal("0.35") * Decimal(str(name_similarity)))
+    score = (
+        Decimal("0.45") * _to_decimal_score(name_similarity)
+        + Decimal("0.20") * _to_decimal_score(brand_score)
+        + Decimal("0.25") * _to_decimal_score(quantity_score)
+        + Decimal("0.10") * _to_decimal_score(category_score)
+    )
 
     return CandidateScore(
         product=product,
         score=score,
         name_similarity=name_similarity,
-        brand_exact=brand_exact,
-        quantity_exact=quantity_exact,
+        token_overlap=token_overlap,
+        brand_score=brand_score,
+        quantity_score=quantity_score,
+        category_score=category_score,
+        category_compatible=category_compatible,
+        category_resolved=category_resolved,
     )
 
 
 def _candidate_queryset(listing: StoreListing):
     listing_norm = normalize_listing_text(name=listing.store_name, brand=listing.store_brand)
     candidates = Product.objects.all()
+    same_store_condition = Q(store_listings__store_id=listing.store_id)
+
+    # Do not match an unmatched listing against products already represented by the same store.
+    # This keeps same-store canonical collisions from collapsing many distinct store listings.
+    if listing.product_id:
+        candidates = candidates.exclude(same_store_condition & ~Q(id=listing.product_id))
+    else:
+        candidates = candidates.exclude(same_store_condition)
+
     listing_category_id = _resolve_listing_category_id(listing)
 
-    if listing.source_category and listing_category_id is None:
-        return Product.objects.none()
     if listing_category_id is not None:
-        candidates = candidates.filter(category_id=listing_category_id)
-
-    if listing_norm.quantity is not None:
         candidates = candidates.filter(
-            quantity_value=listing_norm.quantity.value,
-            quantity_unit=listing_norm.quantity.unit,
+            Q(category_id=listing_category_id) | Q(category__isnull=True)
         )
+
     if listing_norm.brand_normalized:
-        candidates = candidates.filter(
+        brand_candidates = candidates.filter(
             Q(brand_normalized=listing_norm.brand_normalized)
             | Q(brand_normalized__isnull=True)
             | Q(brand_normalized="")
         )
-    return candidates[:300]
+        if brand_candidates.exists():
+            candidates = brand_candidates
+
+    if listing_norm.quantity is not None:
+        quantity_candidates = candidates.filter(
+            Q(quantity_unit=listing_norm.quantity.unit)
+            | Q(quantity_unit__isnull=True)
+            | Q(quantity_unit="")
+        )
+        if quantity_candidates.exists():
+            candidates = quantity_candidates
+
+    return candidates.distinct().order_by("id")[:MAX_CANDIDATES]
+
+
+def _is_category_compatible_for_listing(listing: StoreListing, product: Product) -> bool:
+    _, compatible, _ = _category_context_for_listing(listing=listing, product=product)
+    return compatible
+
+
+def _has_other_listing_from_same_store(listing: StoreListing, product: Product) -> bool:
+    return product.store_listings.filter(store_id=listing.store_id).exclude(id=listing.id).exists()
 
 
 def _create_or_get_product_for_listing(listing: StoreListing) -> tuple[Product, bool]:
@@ -114,27 +225,37 @@ def _create_or_get_product_for_listing(listing: StoreListing) -> tuple[Product, 
     quantity_value = listing_norm.quantity.value if listing_norm.quantity else None
     quantity_unit = listing_norm.quantity.unit if listing_norm.quantity else None
     category = _resolve_listing_category(listing)
+    normalized_key = listing_norm.normalized_key
 
-    if listing_norm.normalized_key:
-        existing = Product.objects.filter(normalized_key=listing_norm.normalized_key).first()
+    if normalized_key:
+        existing = Product.objects.filter(normalized_key=normalized_key).first()
         if existing:
-            return existing, False
+            if _has_other_listing_from_same_store(listing=listing, product=existing):
+                normalized_key = None
+            elif _is_category_compatible_for_listing(listing, existing):
+                return existing, False
+            else:
+                normalized_key = None
 
     product = Product(
         canonical_name=listing.store_name,
         brand_normalized=listing_norm.brand_normalized,
         quantity_value=quantity_value,
         quantity_unit=quantity_unit,
-        normalized_key=listing_norm.normalized_key,
+        normalized_key=normalized_key,
         category=category,
     )
     try:
         product.save()
         return product, True
     except IntegrityError:
-        if listing_norm.normalized_key:
-            existing = Product.objects.filter(normalized_key=listing_norm.normalized_key).first()
-            if existing:
+        if normalized_key:
+            existing = Product.objects.filter(normalized_key=normalized_key).first()
+            if (
+                existing
+                and not _has_other_listing_from_same_store(listing=listing, product=existing)
+                and _is_category_compatible_for_listing(listing, existing)
+            ):
                 return existing, False
         raise
 
@@ -197,12 +318,92 @@ def _create_review(listing: StoreListing, candidate: CandidateScore) -> None:
             "score": candidate.score.quantize(Decimal("0.0001")),
             "status": MatchReview.Status.PENDING,
             "notes": (
-                f"brand_exact={candidate.brand_exact}, "
-                f"quantity_exact={candidate.quantity_exact}, "
-                f"name_similarity={candidate.name_similarity:.3f}"
+                f"name_similarity={candidate.name_similarity:.3f}, "
+                f"token_overlap={candidate.token_overlap:.3f}, "
+                f"brand_score={candidate.brand_score:.3f}, "
+                f"quantity_score={candidate.quantity_score:.3f}, "
+                f"category_score={candidate.category_score:.3f}, "
+                f"resolved_category={candidate.category_resolved}"
             ),
         },
     )
+
+
+def _should_auto_tier_a(candidate: CandidateScore) -> bool:
+    return (
+        candidate.category_resolved
+        and candidate.category_compatible
+        and candidate.name_similarity >= AUTO_TIER_A_SIMILARITY
+        and candidate.brand_score >= 0.95
+        and candidate.quantity_score >= 0.95
+    )
+
+
+def _should_auto_tier_b(candidate: CandidateScore) -> bool:
+    return (
+        candidate.category_resolved
+        and candidate.category_compatible
+        and candidate.name_similarity >= AUTO_TIER_B_SIMILARITY
+        and candidate.quantity_score >= 0.80
+        and candidate.score >= Decimal("0.86")
+    )
+
+
+def _should_auto_tier_c(candidate: CandidateScore) -> bool:
+    return (
+        candidate.category_resolved
+        and candidate.category_compatible
+        and candidate.brand_score >= 0.90
+        and candidate.quantity_score >= 0.95
+        and candidate.name_similarity >= 0.70
+        and candidate.score >= Decimal("0.82")
+    )
+
+
+def _should_auto_tier_d(candidate: CandidateScore) -> bool:
+    return (
+        candidate.category_resolved
+        and candidate.category_compatible
+        and candidate.brand_score <= 0.50
+        and candidate.quantity_score >= 0.95
+        and candidate.name_similarity >= 0.96
+        and candidate.score >= Decimal("0.86")
+    )
+
+
+def _is_no_brand_no_quantity_pair(candidate: CandidateScore) -> bool:
+    return (
+        candidate.brand_score <= 0.41
+        and candidate.quantity_score >= 0.59
+        and candidate.quantity_score <= 0.61
+    )
+
+
+def _should_auto_tier_e(candidate: CandidateScore) -> bool:
+    return (
+        candidate.category_resolved
+        and candidate.category_compatible
+        and candidate.category_score >= 0.99
+        and _is_no_brand_no_quantity_pair(candidate)
+        and candidate.token_overlap >= 0.80
+        and candidate.name_similarity >= 0.92
+        and candidate.score >= Decimal("0.78")
+    )
+
+
+def _should_go_to_review(candidate: CandidateScore) -> bool:
+    if not candidate.category_compatible:
+        return False
+    if not candidate.category_resolved:
+        return False
+    if candidate.quantity_score == 0.0:
+        # Hard quantity mismatch should not be queued as a fuzzy review candidate.
+        return False
+    if candidate.name_similarity < 0.84:
+        return False
+    if candidate.brand_score < 0.65 and candidate.quantity_score < 0.70:
+        return False
+    return candidate.score >= Decimal(str(MANUAL_REVIEW_MIN_SCORE))
 
 
 def match_store_listings(
@@ -228,17 +429,32 @@ def match_store_listings(
         best = _best_candidate(listing)
 
         if best is not None:
-            if best.brand_exact and best.quantity_exact and best.name_similarity >= AUTO_TIER_A_SIMILARITY:
+            if _should_auto_tier_a(best):
                 _set_listing_product(listing, best.product)
                 result.auto_matched += 1
                 continue
 
-            if best.quantity_exact and best.name_similarity >= AUTO_TIER_B_SIMILARITY:
+            if _should_auto_tier_b(best):
                 _set_listing_product(listing, best.product)
                 result.auto_matched += 1
                 continue
 
-            if best.score >= Decimal(str(MANUAL_REVIEW_MIN_SCORE)):
+            if _should_auto_tier_c(best):
+                _set_listing_product(listing, best.product)
+                result.auto_matched += 1
+                continue
+
+            if _should_auto_tier_d(best):
+                _set_listing_product(listing, best.product)
+                result.auto_matched += 1
+                continue
+
+            if _should_auto_tier_e(best):
+                _set_listing_product(listing, best.product)
+                result.auto_matched += 1
+                continue
+
+            if _should_go_to_review(best):
                 _create_review(listing, best)
                 result.review_created += 1
                 continue
