@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from django.db.models import Case, Count, IntegerField, Min, Q, Value, When
+from django.db.models import Case, Count, IntegerField, Min, OuterRef, Q, Subquery, Value, When
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
 
@@ -10,6 +10,15 @@ from ingestion.models import StoreListing
 
 def product_list(request):
     sort = request.GET.get("sort", "name")
+    active_listings = StoreListing.objects.filter(
+        product_id=OuterRef("pk"),
+        is_active=True,
+    )
+    cheapest_price_listing = active_listings.exclude(final_price__isnull=True).order_by(
+        "final_price",
+        "id",
+    )
+
     products = (
         Product.objects.select_related("category")
         .annotate(
@@ -24,6 +33,12 @@ def product_list(request):
                     store_listings__is_active=True,
                     store_listings__final_unit_price__isnull=False,
                 ),
+            ),
+            cheapest_final_price=Subquery(cheapest_price_listing.values("final_price")[:1]),
+            cheapest_original_price=Subquery(cheapest_price_listing.values("original_price")[:1]),
+            cheapest_final_unit_price=Subquery(cheapest_price_listing.values("final_unit_price")[:1]),
+            cheapest_original_unit_price=Subquery(
+                cheapest_price_listing.values("original_unit_price")[:1]
             ),
             no_unit_price_sort=Case(
                 When(lowest_final_unit_price__isnull=True, then=Value(1)),

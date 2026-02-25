@@ -252,6 +252,30 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertLess(content.index("Low unit price"), content.index("High unit price"))
         self.assertLess(content.index("High unit price"), content.index("No unit price"))
 
+    def test_product_list_card_shows_price_and_struck_original_values(self):
+        store = Store.objects.create(name="sklavenitis")
+        product = Product.objects.create(canonical_name="Card product")
+        StoreListing.objects.create(
+            store=store,
+            store_sku="sku-card",
+            store_name="Card listing",
+            url="https://example.com/card",
+            final_price=Decimal("1.50"),
+            original_price=Decimal("2.10"),
+            final_unit_price=Decimal("1.2345"),
+            original_unit_price=Decimal("1.9000"),
+            product=product,
+            is_active=True,
+        )
+
+        response = self.client.get(reverse("product-list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Card product")
+        self.assertContains(response, "<s>2.10</s>", html=True)
+        self.assertContains(response, "<s>1.9000</s>", html=True)
+        self.assertContains(response, "1 store")
+
 
 class MatchReviewAdminTests(TestCase):
     def test_approve_action_links_listing_and_rejects_other_pending(self):
