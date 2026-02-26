@@ -14,6 +14,7 @@ from ingestion.services.importer import import_rows_for_store
 CRAWLER_MODULES = {
     "mymarket": "crawlers.mymarket_category_listing_v2",
     "sklavenitis": "crawlers.sklavenitis_category_listing_v2",
+    "ab": "crawlers.ab_category_listing",
 }
 
 
@@ -77,11 +78,18 @@ class Command(BaseCommand):
         for category in categories:
             root_slug = crawler.to_category_slug(category)
             root_listing = crawler.to_category_url(root_slug)
+            root_category_builder = getattr(crawler, "to_root_category", None)
+            if callable(root_category_builder):
+                root_category = root_category_builder(category) or root_slug
+            else:
+                root_category = root_slug
 
-            self.stdout.write(f"Crawling category={root_slug} url={root_listing}")
+            self.stdout.write(
+                f"Crawling category={root_slug} root_category={root_category} url={root_listing}"
+            )
             crawled_rows = crawler.crawl_category_listing(
                 root_listing=root_listing,
-                root_category=root_slug,
+                root_category=root_category,
                 max_pages=options["max_pages"],
             )
             self.stdout.write(f"Collected {len(crawled_rows)} rows from {root_slug}")
