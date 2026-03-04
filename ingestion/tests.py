@@ -5,12 +5,14 @@ import csv
 import os
 import tempfile
 from importlib import import_module
+from unittest.mock import patch
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
 
 from catalog.models import Product
 from comparison.models import MatchReview
-from crawlers import CRAWLER_MODULES
+from crawlers import CRAWLER_MODULES, CRAWLER_RUN_ORDER
 from ingestion.models import CrawlerRun, PriceHistory, StoreListing
 from ingestion.services.importer import import_rows_for_store
 
@@ -23,6 +25,46 @@ class CrawlerRegistryTests(TestCase):
             self.assertTrue(callable(getattr(crawler, "to_category_slug", None)))
             self.assertTrue(callable(getattr(crawler, "to_category_url", None)))
             self.assertTrue(callable(getattr(crawler, "crawl_category_listing", None)))
+
+
+class RunAllDailyIngestionCommandTests(TestCase):
+    def test_runs_all_crawlers_in_expected_order(self):
+        observed_calls: list[tuple[str, dict[str, object]]] = []
+
+        def fake_call_command(command_name, **kwargs):
+            observed_calls.append((command_name, kwargs))
+
+        with patch("ingestion.management.commands.run_all_daily_ingestion.call_command", side_effect=fake_call_command):
+            call_command("run_all_daily_ingestion", "--max-pages", "3", "--run-matcher")
+
+        self.assertEqual(
+            observed_calls,
+            [
+                (
+                    "run_daily_ingestion",
+                    {
+                        "store": store,
+                        "max_pages": 3,
+                        "run_matcher": True,
+                    },
+                )
+                for store in CRAWLER_RUN_ORDER
+            ],
+        )
+
+    def test_stops_on_first_failing_crawler(self):
+        observed_stores: list[str] = []
+
+        def fake_call_command(command_name, **kwargs):
+            observed_stores.append(str(kwargs["store"]))
+            if kwargs["store"] == "mymarket":
+                raise CommandError("boom")
+
+        with patch("ingestion.management.commands.run_all_daily_ingestion.call_command", side_effect=fake_call_command):
+            with self.assertRaisesMessage(CommandError, "boom"):
+                call_command("run_all_daily_ingestion")
+
+        self.assertEqual(observed_stores, ["ab", "bazaar", "mymarket"])
 
 
 class ImportPipelineTests(TestCase):
