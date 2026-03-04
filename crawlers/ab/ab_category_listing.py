@@ -1,8 +1,12 @@
+import builtins
 import csv
+import os
 import re
 import time
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
+from decimal import ROUND_CEILING, Decimal
 from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import parse_qs, urljoin, urlparse
 
@@ -27,16 +31,38 @@ ROOT_CATEGORIES = [
     # "el/eshop/Gia-katoikidia/c/014",
 ]
 MAX_PAGES_PER_CATEGORY = 500
-PAGE_SLEEP_SECONDS = 0.05
 SORT_PRODUCTS_FOR_CSV = True
 REQUEST_RETRY_ATTEMPTS = 3
 REQUEST_RETRY_BACKOFF_SECONDS = 1.0
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+DEFAULT_PAGE_SLEEP_SECONDS = 0.02
+DEFAULT_CATEGORY_WORKERS = 4
+CLIENT_TIMEOUT_SECONDS = 30.0
+
+try:
+    PAGE_SLEEP_SECONDS = max(
+        0.0,
+        float(os.getenv("CRAWLER_PAGE_SLEEP_SECONDS", str(DEFAULT_PAGE_SLEEP_SECONDS))),
+    )
+except ValueError:
+    PAGE_SLEEP_SECONDS = DEFAULT_PAGE_SLEEP_SECONDS
+
+try:
+    CATEGORY_WORKERS = max(
+        1,
+        int(os.getenv("CRAWLER_CATEGORY_WORKERS", str(DEFAULT_CATEGORY_WORKERS))),
+    )
+except ValueError:
+    CATEGORY_WORKERS = DEFAULT_CATEGORY_WORKERS
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0",
     "Accept-Language": "el-GR,el;q=0.9,en;q=0.8",
 }
+HTTPX_LIMITS = httpx.Limits(
+    max_connections=max(8, CATEGORY_WORKERS * 4),
+    max_keepalive_connections=max(4, CATEGORY_WORKERS * 2),
+)
 
 GRAPHQL_ENDPOINT = f"{BASE}/api/v1/"
 GRAPHQL_OPERATION_NAME = "GetCategoryProductSearch"
@@ -48,6 +74,7 @@ _spaces_re = re.compile(r"\s+")
 _price_cleanup_re = re.compile(r"[^0-9,.\-]")
 _discount_re = re.compile(r"(-?\s*\d+)\s*%")
 _one_plus_one_re = re.compile(r"\b1\s*\+\s*1\b")
+_two_plus_one_re = re.compile(r"\b2\s*\+\s*1\b")
 _page_param_re = re.compile(
     r"[?&](?:page|pg|p|currentPage|currentpage)=(\d+)",
     re.IGNORECASE,
@@ -55,6 +82,27 @@ _page_param_re = re.compile(
 _euros_cents_re = re.compile(r"(\d+)\s+ευρ(?:ώ|ω)\s+και\s+(\d+)\s+λεπτ(?:ά|α)", re.IGNORECASE)
 _split_price_re = re.compile(r"(?:~?\s*€\s*)?(\d+)\s+(\d{1,2})(?:\s|$)")
 _category_code_re = re.compile(r"/c/([^/?#]+)", re.IGNORECASE)
+_hidden_price_quantum = Decimal("0.01")
+_hidden_price_fields = ("hidden_price", "hidden_unit_price")
+
+console_print = builtins.print
+
+
+def print(*args: Any, **kwargs: Any) -> None:
+    return None
+
+
+def make_http_client() -> httpx.Client:
+    client_kwargs = dict(
+        headers=HEADERS,
+        timeout=CLIENT_TIMEOUT_SECONDS,
+        follow_redirects=True,
+        limits=HTTPX_LIMITS,
+    )
+    try:
+        return httpx.Client(http2=True, **client_kwargs)
+    except ImportError:
+        return httpx.Client(**client_kwargs)
 
 
 @dataclass
@@ -66,19 +114,50 @@ class ListingProductRow:
 
     final_price: Optional[float] = None
     final_unit_price: Optional[float] = None
+    hidden_price: Optional[float] = None
+    hidden_unit_price: Optional[float] = None
     original_price: Optional[float] = None
     original_unit_price: Optional[float] = None
     unit_of_measure: Optional[str] = None
-    final_set_price: Optional[float] = None
-    original_set_price: Optional[float] = None
 
     discount_percent: Optional[int] = None
     offer: bool = False
     one_plus_one: bool = False
+    two_plus_one: bool = False
+    promo_text: Optional[str] = None
 
     image_url: Optional[str] = None
 
     root_category: Optional[str] = None
+
+    def refresh_hidden_prices(self) -> None:
+        multiplier = 1.0
+        if self.two_plus_one:
+            multiplier = 2.0 / 3.0
+        elif self.one_plus_one:
+            multiplier = 0.5
+
+        self.hidden_price = round_hidden_price(self.final_price, multiplier)
+        self.hidden_unit_price = round_hidden_price(self.final_unit_price, multiplier)
+
+    def __post_init__(self) -> None:
+        self.refresh_hidden_prices()
+
+
+def round_hidden_price(value: Optional[float], multiplier: float) -> Optional[float]:
+    if value is None:
+        return None
+    amount = Decimal(str(value)) * Decimal(str(multiplier))
+    return float(amount.quantize(_hidden_price_quantum, rounding=ROUND_CEILING))
+
+
+def serialize_row_for_csv(row: ListingProductRow) -> Dict[str, Any]:
+    data = asdict(row)
+    for field_name in _hidden_price_fields:
+        value = data.get(field_name)
+        if value is not None:
+            data[field_name] = f"{value:.2f}"
+    return data
 
 
 def normalize_spaces(text: str) -> str:
@@ -92,10 +171,56 @@ def normalize_text_no_accents(text: str) -> str:
 
 def detect_unit_of_measure(label: str) -> Optional[str]:
     low = normalize_text_no_accents(label)
-    if any(token in low for token in ("/κιλ", "κιλο", "κιλου", "κιλα", "/kg")):
+    if any(
+        token in low
+        for token in (
+            "/κιλ",
+            "ανα κιλ",
+            "ανά κιλ",
+            "κιλο",
+            "κιλου",
+            "κιλα",
+            "/kg",
+            " kg",
+            "kilogram",
+        )
+    ):
         return "kilos"
-    if any(token in low for token in ("/λιτ", "λιτρο", "λιτρου", "λιτρα", "/lt", "/l")):
+    if any(
+        token in low
+        for token in (
+            "/λιτ",
+            "ανα λιτ",
+            "ανά λιτ",
+            "λιτρο",
+            "λιτρου",
+            "λιτρα",
+            "/lt",
+            "/l",
+            " liter",
+            " litre",
+        )
+    ):
         return "liters"
+    if any(
+        token in low
+        for token in (
+            "/τεμ",
+            "ανα τεμ",
+            "ανά τεμ",
+            "τεμαχ",
+            "/τμχ",
+            "τμχ",
+            "/tmx",
+            " piece",
+            " pieces",
+            " pc",
+            " pcs",
+            "/ea",
+            " each",
+        )
+    ):
+        return "piece"
     return None
 
 
@@ -308,6 +433,21 @@ def parse_brand(article) -> Optional[str]:
     return value
 
 
+def ensure_brand_in_name(name: Optional[str], brand: Optional[str]) -> Optional[str]:
+    clean_name = normalize_spaces(name or "")
+    if not clean_name:
+        return None
+
+    clean_brand = normalize_spaces(brand or "")
+    if not clean_brand:
+        return clean_name
+
+    if normalize_text_no_accents(clean_name).startswith(normalize_text_no_accents(clean_brand)):
+        return clean_name
+
+    return normalize_spaces(f"{clean_brand} {clean_name}")
+
+
 def parse_image_url(article) -> Optional[str]:
     img = article.css_first("img[data-testid='product-block-image']")
     if not img:
@@ -338,17 +478,25 @@ def parse_discount_percent(article) -> Optional[int]:
 def parse_unit_prices(article) -> Tuple[Optional[float], Optional[float], Optional[str]]:
     unit_node = article.css_first("[data-testid='product-block-price-per-unit']")
     old_unit_node = article.css_first("[data-testid='product-block-old-ppu']")
+    supplementary_node = article.css_first("[data-testid='product-block-supplementary-price']")
 
     final_unit = parse_price_node(unit_node)
     original_unit = parse_price_number(
         old_unit_node.text(separator=" ", strip=True) if old_unit_node else ""
     )
 
-    unit_label = ""
-    if unit_node:
-        unit_label = normalize_spaces(unit_node.text(separator=" ", strip=True))
-        if not unit_label:
-            unit_label = normalize_spaces(unit_node.attributes.get("aria-label") or "")
+    unit_label_parts: List[str] = []
+    for node in (unit_node, supplementary_node):
+        if node is None:
+            continue
+        txt = normalize_spaces(node.text(separator=" ", strip=True))
+        aria = normalize_spaces(node.attributes.get("aria-label") or "")
+        if txt:
+            unit_label_parts.append(txt)
+        if aria:
+            unit_label_parts.append(aria)
+
+    unit_label = " ".join(unit_label_parts).strip()
     unit_of_measure = detect_unit_of_measure(unit_label)
 
     if (
@@ -387,11 +535,28 @@ def parse_one_plus_one(article) -> bool:
     return bool(_one_plus_one_re.search(txt))
 
 
+def parse_two_plus_one(article) -> bool:
+    promo_node = article.css_first("[data-testid='tag-promo-label']")
+    if not promo_node:
+        return False
+    txt = normalize_spaces(promo_node.text(separator=" ", strip=True))
+    return bool(_two_plus_one_re.search(txt))
+
+
+def parse_promo_text(article) -> Optional[str]:
+    promo_node = article.css_first("[data-testid='tag-promo-label']")
+    if not promo_node:
+        return None
+    txt = normalize_spaces(promo_node.text(separator=" ", strip=True))
+    return txt or None
+
+
 def parse_listing_article(article, root_category: str) -> Optional[ListingProductRow]:
     name = parse_name(article)
     url = parse_product_url(article)
     sku = parse_sku(article)
     brand = parse_brand(article)
+    name = ensure_brand_in_name(name, brand)
 
     final_price, original_price = parse_main_prices(article)
     final_unit_price, original_unit_price, unit_of_measure = parse_unit_prices(article)
@@ -401,6 +566,8 @@ def parse_listing_article(article, root_category: str) -> Optional[ListingProduc
 
     discount_percent = parse_discount_percent(article)
     one_plus_one = parse_one_plus_one(article)
+    two_plus_one = parse_two_plus_one(article)
+    promo_text = parse_promo_text(article)
 
     if discount_percent is None:
         if final_price and original_price and original_price > final_price:
@@ -424,7 +591,10 @@ def parse_listing_article(article, root_category: str) -> Optional[ListingProduc
         and original_unit_price > final_unit_price
     )
 
-    offer = one_plus_one or discount_percent is not None or has_price_discount
+    offer = one_plus_one or two_plus_one or discount_percent is not None or has_price_discount
+    if discount_percent is not None or one_plus_one or two_plus_one:
+        promo_text = None
+    unit_of_measure = unit_of_measure or "piece"
 
     row = ListingProductRow(
         url=url,
@@ -436,11 +606,11 @@ def parse_listing_article(article, root_category: str) -> Optional[ListingProduc
         original_price=original_price,
         original_unit_price=original_unit_price,
         unit_of_measure=unit_of_measure,
-        final_set_price=None,
-        original_set_price=None,
         discount_percent=discount_percent,
         offer=offer,
         one_plus_one=one_plus_one,
+        two_plus_one=two_plus_one,
+        promo_text=promo_text,
         image_url=parse_image_url(article),
         root_category=root_category,
     )
@@ -451,11 +621,13 @@ def parse_listing_article(article, root_category: str) -> Optional[ListingProduc
 
 
 def detect_unit_of_measure_from_code(unit_code: Optional[str], label: str = "") -> Optional[str]:
-    code = normalize_spaces((unit_code or "").lower())
-    if code in {"kilogram", "kg"}:
+    code = normalize_text_no_accents(normalize_spaces(str(unit_code or "")))
+    if code in {"kilogram", "kg", "kilo", "kgr"}:
         return "kilos"
-    if code in {"liter", "litre", "l"}:
+    if code in {"liter", "litre", "l", "lt"}:
         return "liters"
+    if code in {"piece", "pieces", "pc", "pcs", "ea", "each", "item", "τεμ", "τμχ", "tmx"}:
+        return "piece"
     return detect_unit_of_measure(label)
 
 
@@ -487,7 +659,9 @@ def parse_api_image_url(images: Any) -> Optional[str]:
     return normalize(urljoin(BASE, best_url))
 
 
-def parse_promotions_info(product: Dict[str, Any]) -> Tuple[Optional[int], bool, bool]:
+def parse_promotions_info(
+    product: Dict[str, Any]
+) -> Tuple[Optional[int], bool, bool, bool, Optional[str]]:
     promotions: List[Dict[str, Any]] = []
     for key in ("potentialPromotions", "potentialActivatablePromotions"):
         values = product.get(key)
@@ -496,6 +670,8 @@ def parse_promotions_info(product: Dict[str, Any]) -> Tuple[Optional[int], bool,
 
     discount_percent: Optional[int] = None
     one_plus_one = False
+    two_plus_one = False
+    promo_text: Optional[str] = None
 
     for promo in promotions:
         pct = promo.get("percentageDiscount")
@@ -507,10 +683,17 @@ def parse_promotions_info(product: Dict[str, Any]) -> Tuple[Optional[int], bool,
             normalize_spaces(str(promo.get("description") or "")),
             normalize_spaces(str(promo.get("simplePromotionMessage") or "")),
         ]
+        if promo_text is None:
+            for txt in texts:
+                if txt:
+                    promo_text = txt
+                    break
         if any(_one_plus_one_re.search(txt) for txt in texts if txt):
             one_plus_one = True
+        if any(_two_plus_one_re.search(txt) for txt in texts if txt):
+            two_plus_one = True
 
-    return discount_percent, one_plus_one, bool(promotions)
+    return discount_percent, one_plus_one, two_plus_one, bool(promotions), promo_text
 
 
 def parse_api_listing_product(
@@ -532,6 +715,7 @@ def parse_api_listing_product(
     brand = normalize_spaces(str(raw_brand))
     if not brand or brand == "-":
         brand = None
+    name = ensure_brand_in_name(name, brand)
 
     price = product.get("price") if isinstance(product.get("price"), dict) else {}
     show_strikethrough = bool(price.get("showStrikethroughPrice"))
@@ -542,13 +726,37 @@ def parse_api_listing_product(
     if final_price is not None and original_price is not None and original_price <= final_price + 1e-9:
         original_price = None
 
-    original_unit_price = parse_price_number(str(price.get("unitPriceFormatted") or ""))
-    discounted_unit_price = parse_price_number(str(price.get("discountedUnitPriceFormatted") or ""))
-    final_unit_price = (
-        discounted_unit_price
-        if show_strikethrough and discounted_unit_price is not None
-        else original_unit_price
+    supplementary_price_label1 = normalize_spaces(str(price.get("supplementaryPriceLabel1") or ""))
+    supplementary_price_label2 = normalize_spaces(str(price.get("supplementaryPriceLabel2") or ""))
+    discounted_unit_price_formatted = normalize_spaces(
+        str(price.get("discountedUnitPriceFormatted") or "")
     )
+    unit_price_formatted_label = normalize_spaces(str(price.get("unitPriceFormatted") or ""))
+    unit_label_code = normalize_spaces(str(price.get("unit") or ""))
+
+    supplementary_unit_price = parse_price_number(supplementary_price_label1)
+    discounted_unit_price = parse_price_number(discounted_unit_price_formatted)
+    unit_price_formatted = parse_price_number(unit_price_formatted_label)
+
+    if show_strikethrough:
+        final_unit_price = discounted_unit_price
+        original_unit_price = supplementary_unit_price
+    else:
+        final_unit_price = supplementary_unit_price
+        original_unit_price = None
+
+    if final_unit_price is None:
+        final_unit_price = unit_price_formatted
+
+    if show_strikethrough and original_unit_price is None:
+        original_unit_price = unit_price_formatted
+
+    if final_unit_price is None and isinstance(price.get("unitPrice"), (int, float)):
+        final_unit_price = float(price["unitPrice"])
+
+    if show_strikethrough and original_unit_price is None and isinstance(price.get("unitPrice"), (int, float)):
+        original_unit_price = float(price["unitPrice"])
+
     if (
         final_unit_price is not None
         and original_unit_price is not None
@@ -556,24 +764,28 @@ def parse_api_listing_product(
     ):
         original_unit_price = None
 
-    if final_unit_price is None and isinstance(price.get("unitPrice"), (int, float)):
-        final_unit_price = float(price["unitPrice"])
-    if original_unit_price is None and isinstance(price.get("unitPrice"), (int, float)):
-        if original_price is not None and final_price is not None and original_price > final_price:
-            original_unit_price = float(price["unitPrice"])
-
     if final_unit_price is None and final_price is not None:
         final_unit_price = final_price
 
     unit_label = " ".join(
         [
-            normalize_spaces(str(price.get("supplementaryPriceLabel1") or "")),
-            normalize_spaces(str(price.get("supplementaryPriceLabel2") or "")),
+            supplementary_price_label1,
+            supplementary_price_label2,
+            discounted_unit_price_formatted,
+            unit_price_formatted_label,
+            unit_label_code,
         ]
     ).strip()
     unit_of_measure = detect_unit_of_measure_from_code(price.get("unitCode"), unit_label)
+    unit_of_measure = unit_of_measure or "piece"
 
-    discount_percent, one_plus_one, has_promotions = parse_promotions_info(product)
+    (
+        discount_percent,
+        one_plus_one,
+        two_plus_one,
+        has_promotions,
+        promo_text,
+    ) = parse_promotions_info(product)
     if discount_percent is None and final_price and original_price and original_price > final_price:
         discount_percent = int(round(((original_price - final_price) / original_price) * 100))
     if (
@@ -595,7 +807,15 @@ def parse_api_listing_product(
         and final_unit_price is not None
         and original_unit_price > final_unit_price
     )
-    offer = one_plus_one or discount_percent is not None or has_price_discount or has_promotions
+    offer = (
+        one_plus_one
+        or two_plus_one
+        or discount_percent is not None
+        or has_price_discount
+        or has_promotions
+    )
+    if discount_percent is not None or one_plus_one or two_plus_one:
+        promo_text = None
 
     row = ListingProductRow(
         url=product_url,
@@ -607,11 +827,11 @@ def parse_api_listing_product(
         original_price=original_price,
         original_unit_price=original_unit_price,
         unit_of_measure=unit_of_measure,
-        final_set_price=None,
-        original_set_price=None,
         discount_percent=discount_percent,
         offer=offer,
         one_plus_one=one_plus_one,
+        two_plus_one=two_plus_one,
+        promo_text=promo_text,
         image_url=parse_api_image_url(product.get("images")),
         root_category=root_category,
     )
@@ -884,7 +1104,7 @@ def crawl_category_listing(
     rows: List[ListingProductRow] = []
     seen_keys: Set[str] = set()
 
-    with httpx.Client(headers=HEADERS, timeout=30, follow_redirects=True) as client:
+    with make_http_client() as client:
         if category_code:
             page = 1
             while page <= max_pages:
@@ -963,31 +1183,48 @@ def save_to_csv(rows: List[ListingProductRow], filename: str) -> None:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for row in rows:
-            writer.writerow(asdict(row))
+            writer.writerow(serialize_row_for_csv(row))
 
     print(f"Saved {len(rows)} rows to {filename}")
 
 
 if __name__ == "__main__":
-    for category in ROOT_CATEGORIES:
+    def process_root_category(category: str) -> None:
         try:
             root_slug = to_category_slug(category)
             root_category = to_root_category(category)
         except ValueError as exc:
             print(exc)
-            continue
+            return
 
         root_listing = to_category_url(root_slug)
-        print(f"\n=== category={root_slug} ({root_listing}) root_category={root_category} ===")
+        console_print(f"category={root_slug} -> start")
 
         rows = crawl_category_listing(
             root_listing=root_listing,
             root_category=root_category,
             max_pages=MAX_PAGES_PER_CATEGORY,
         )
-        print(f"parsed from listings under {root_slug}: {len(rows)}")
+        console_print(f"category={root_slug} -> done products={len(rows)}")
 
         if SORT_PRODUCTS_FOR_CSV:
             rows.sort(key=lambda row: ((row.url or "").lower(), row.sku or "", row.name or ""))
 
         save_to_csv(rows, csv_filename_for_root_category(root_category))
+
+    categories = [category for category in ROOT_CATEGORIES if category.strip()]
+    if CATEGORY_WORKERS <= 1 or len(categories) <= 1:
+        for category in categories:
+            process_root_category(category)
+    else:
+        with ThreadPoolExecutor(max_workers=min(CATEGORY_WORKERS, len(categories))) as executor:
+            futures = {
+                executor.submit(process_root_category, category): category
+                for category in categories
+            }
+            for future in as_completed(futures):
+                category = futures[future]
+                try:
+                    future.result()
+                except Exception as exc:
+                    print(f"category={category} -> failed ({exc})")

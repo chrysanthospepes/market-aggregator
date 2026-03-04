@@ -8,14 +8,8 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
+from crawlers import CRAWLER_MODULES
 from ingestion.services.importer import import_rows_for_store
-
-
-CRAWLER_MODULES = {
-    "mymarket": "crawlers.mymarket_category_listing_v2",
-    "sklavenitis": "crawlers.sklavenitis_category_listing_v2",
-    "ab": "crawlers.ab_category_listing",
-}
 
 
 def _dedupe_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -4,13 +4,25 @@ from django.utils import timezone
 import csv
 import os
 import tempfile
+from importlib import import_module
 
 from django.core.management import call_command
 
 from catalog.models import Product
 from comparison.models import MatchReview
+from crawlers import CRAWLER_MODULES
 from ingestion.models import CrawlerRun, PriceHistory, StoreListing
 from ingestion.services.importer import import_rows_for_store
+
+
+class CrawlerRegistryTests(TestCase):
+    def test_registered_crawlers_expose_ingestion_interface(self):
+        for module_path in CRAWLER_MODULES.values():
+            crawler = import_module(module_path)
+            self.assertTrue(hasattr(crawler, "ROOT_CATEGORIES"))
+            self.assertTrue(callable(getattr(crawler, "to_category_slug", None)))
+            self.assertTrue(callable(getattr(crawler, "to_category_url", None)))
+            self.assertTrue(callable(getattr(crawler, "crawl_category_listing", None)))
 
 
 class ImportPipelineTests(TestCase):

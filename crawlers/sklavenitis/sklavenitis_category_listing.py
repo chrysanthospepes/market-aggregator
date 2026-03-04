@@ -1,10 +1,15 @@
+import builtins
 import csv
 import html
 import json
+import os
 import re
 import time
 import unicodedata
-from dataclasses import asdict, dataclass
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import asdict, dataclass, fields
+from decimal import ROUND_CEILING, Decimal
+from functools import lru_cache
 from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import urljoin, urlparse
 
@@ -13,8 +18,8 @@ from selectolax.parser import HTMLParser
 
 BASE = "https://www.sklavenitis.gr"
 ROOT_CATEGORIES = [
-    # "eidi-artozacharoplasteioy",
     "freska-froyta-lachanika",
+    # "eidi-artozacharoplasteioy",
     # "fresko-psari-thalassina",
     # "fresko-kreas",
     # "galata-rofimata-chymoi-psygeioy",
@@ -41,22 +46,88 @@ ROOT_CATEGORIES = [
     # "chartopoleio",
 ]
 MAX_PAGES_PER_CATEGORY = 500
-PAGE_SLEEP_SECONDS = 0.3
 # True: deterministic sort before CSV write. False: keep parser discovery order.
 SORT_PRODUCTS_FOR_CSV = True
 REQUEST_RETRY_ATTEMPTS = 3
 REQUEST_RETRY_BACKOFF_SECONDS = 1.0
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+DEFAULT_PAGE_SLEEP_SECONDS = 0.02
+DEFAULT_CATEGORY_WORKERS = 4
+CLIENT_TIMEOUT_SECONDS = 30.0
+
+try:
+    PAGE_SLEEP_SECONDS = max(
+        0.0,
+        float(os.getenv("CRAWLER_PAGE_SLEEP_SECONDS", str(DEFAULT_PAGE_SLEEP_SECONDS))),
+    )
+except ValueError:
+    PAGE_SLEEP_SECONDS = DEFAULT_PAGE_SLEEP_SECONDS
+
+try:
+    CATEGORY_WORKERS = max(
+        1,
+        int(os.getenv("CRAWLER_CATEGORY_WORKERS", str(DEFAULT_CATEGORY_WORKERS))),
+    )
+except ValueError:
+    CATEGORY_WORKERS = DEFAULT_CATEGORY_WORKERS
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0",
     "Accept-Language": "el-GR,el;q=0.9,en;q=0.8",
 }
+HTTPX_LIMITS = httpx.Limits(
+    max_connections=max(8, CATEGORY_WORKERS * 4),
+    max_keepalive_connections=max(4, CATEGORY_WORKERS * 2),
+)
 
+BASE_NETLOC = urlparse(BASE).netloc
+PROMO_SELECTORS = (
+    ".sign-badges .badge",
+    ".offer-span",
+    ".product-discount-tag",
+    ".product-note-tag",
+    ".product-label",
+    ".product-tag",
+    ".product-badge",
+    ".product-flags_figure",
+    ".sign-new_figure",
+    "[class*='offer']",
+    "[class*='discount']",
+    "[class*='promo']",
+    "[class*='badge']",
+    "[class*='tag']",
+    "[class*='flag']",
+    "[class*='sign']",
+)
+_spaces_re = re.compile(r"\s+")
+_non_price_chars_re = re.compile(r"[^0-9,.\-]")
 _one_plus_one_re = re.compile(r"\b1\s*\+\s*1\b")
+_two_plus_one_re = re.compile(r"\b2\s*\+\s*1\b")
 _discount_re = re.compile(r"(-?\s*\d+)\s*%")
 _page_param_re = re.compile(r"[?&](?:pg|page)=(\d+)", re.IGNORECASE)
 _price_before_currency_re = re.compile(r"([0-9][0-9\.,]*)\s*(?:€|EUR)", re.IGNORECASE)
+_max_price_mismatch_ratio = 1.8
+_hidden_price_quantum = Decimal("0.01")
+_hidden_price_fields = ("hidden_price", "hidden_unit_price")
+
+console_print = builtins.print
+
+
+def print(*args: Any, **kwargs: Any) -> None:
+    return None
+
+
+def make_http_client() -> httpx.Client:
+    client_kwargs = dict(
+        headers=HEADERS,
+        timeout=CLIENT_TIMEOUT_SECONDS,
+        follow_redirects=True,
+        limits=HTTPX_LIMITS,
+    )
+    try:
+        return httpx.Client(http2=True, **client_kwargs)
+    except ImportError:
+        return httpx.Client(**client_kwargs)
 
 
 @dataclass
@@ -68,41 +139,88 @@ class ListingProductRow:
 
     final_price: Optional[float] = None
     final_unit_price: Optional[float] = None
+    hidden_price: Optional[float] = None
+    hidden_unit_price: Optional[float] = None
     original_price: Optional[float] = None
     original_unit_price: Optional[float] = None
     unit_of_measure: Optional[str] = None
-    final_set_price: Optional[float] = None
-    original_set_price: Optional[float] = None
 
     discount_percent: Optional[int] = None
     offer: bool = False
     one_plus_one: bool = False
+    two_plus_one: bool = False
+    promo_text: Optional[str] = None
 
     image_url: Optional[str] = None
 
     root_category: Optional[str] = None
 
+    def refresh_hidden_prices(self) -> None:
+        multiplier = 1.0
+        if self.two_plus_one:
+            multiplier = 2.0 / 3.0
+        elif self.one_plus_one:
+            multiplier = 0.5
+
+        self.hidden_price = round_hidden_price(self.final_price, multiplier)
+        self.hidden_unit_price = round_hidden_price(self.final_unit_price, multiplier)
+
+    def __post_init__(self) -> None:
+        self.refresh_hidden_prices()
+
+
+def round_hidden_price(value: Optional[float], multiplier: float) -> Optional[float]:
+    if value is None:
+        return None
+    amount = Decimal(str(value)) * Decimal(str(multiplier))
+    return float(amount.quantize(_hidden_price_quantum, rounding=ROUND_CEILING))
+
+
+def serialize_row_for_csv(row: ListingProductRow) -> Dict[str, Any]:
+    data = asdict(row)
+    for field_name in _hidden_price_fields:
+        value = data.get(field_name)
+        if value is not None:
+            data[field_name] = f"{value:.2f}"
+    return data
+
 
 def normalize_spaces(text: str) -> str:
-    return re.sub(r"\s+", " ", (text or "").replace("\xa0", " ")).strip()
+    return _spaces_re.sub(" ", (text or "").replace("\xa0", " ")).strip()
 
 
+@lru_cache(maxsize=512)
 def normalize_text_no_accents(text: str) -> str:
     normalized = unicodedata.normalize("NFD", normalize_spaces(text).lower())
     return "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
 
 
+@lru_cache(maxsize=512)
 def detect_unit_of_measure(label: str) -> Optional[str]:
     low = normalize_text_no_accents(label)
     if any(token in low for token in ("κιλου", "κιλα", "κιλο", "/kg")):
         return "kilos"
     if any(token in low for token in ("λιτρου", "λιτρα", "λιτρο", "/lt", "/l")):
         return "liters"
+    if any(
+        token in low
+        for token in (
+            "τεμαχ",
+            "τεμ",
+            "τμχ",
+            "/pc",
+            "pcs",
+            "piece",
+            "/ea",
+            "each",
+        )
+    ):
+        return "piece"
     return None
 
 
 def same_site(url: str) -> bool:
-    return urlparse(url).netloc == urlparse(BASE).netloc
+    return urlparse(url).netloc == BASE_NETLOC
 
 
 def normalize(url: str) -> str:
@@ -139,7 +257,7 @@ def parse_price_number(text: str) -> Optional[float]:
 
     s = s.replace("EUR", "")
     s = s.replace("€", "")
-    s = re.sub(r"[^0-9,.\-]", "", s)
+    s = _non_price_chars_re.sub("", s)
     if not s:
         return None
 
@@ -162,6 +280,64 @@ def parse_first_price_before_currency(text: str) -> Optional[float]:
         if value is not None:
             return value
     return None
+
+
+def parse_analytics_price(analytics_item: Dict[str, Any]) -> Optional[float]:
+    if analytics_item.get("price") is None:
+        return None
+    value = parse_price_number(str(analytics_item.get("price")))
+    if value is None or value <= 0:
+        return None
+    return value
+
+
+def reconcile_prices(
+    final_price: Optional[float],
+    final_unit_price: Optional[float],
+    original_price: Optional[float],
+    original_unit_price: Optional[float],
+    analytics_price: Optional[float],
+) -> Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]:
+    if final_price is None and analytics_price is not None:
+        final_price = analytics_price
+
+    # Trust analytics only for obvious parsing outliers.
+    if (
+        analytics_price is not None
+        and final_price is not None
+        and original_price is None
+        and analytics_price > 0
+        and final_price > 0
+    ):
+        higher = max(analytics_price, final_price)
+        lower = min(analytics_price, final_price)
+        if higher / lower >= _max_price_mismatch_ratio and (
+            final_unit_price is None or abs(final_unit_price - final_price) <= 1e-9
+        ):
+            final_price = analytics_price
+            final_unit_price = analytics_price
+
+    if (
+        final_price is not None
+        and original_price is not None
+        and original_price <= final_price + 1e-9
+    ):
+        original_price = None
+    if (
+        final_unit_price is not None
+        and original_unit_price is not None
+        and original_unit_price <= final_unit_price + 1e-9
+    ):
+        original_unit_price = None
+
+    if (
+        final_unit_price is None
+        and original_unit_price is None
+        and final_price is not None
+    ):
+        final_unit_price = final_price
+
+    return final_price, final_unit_price, original_price, original_unit_price
 
 
 def to_category_slug(category: str) -> str:
@@ -227,18 +403,17 @@ def parse_product_meta(article) -> Dict[str, Any]:
 
 
 def extract_pagination_state(
-    html_text: str,
+    tree: HTMLParser,
     requested_page: int,
 ) -> Tuple[Optional[int], Optional[int], bool, Optional[int], Optional[int]]:
-    t = HTMLParser(html_text)
     page_numbers: Set[int] = set()
     next_page: Optional[int] = None
     has_next = (
-        t.css_first("link[rel='next']") is not None
-        or t.css_first("a[rel='next']") is not None
+        tree.css_first("link[rel='next']") is not None
+        or tree.css_first("a[rel='next']") is not None
     )
 
-    next_node = t.css_first("section.pagination.go-next")
+    next_node = tree.css_first("section.pagination.go-next")
     if next_node:
         raw = (next_node.attributes.get("data-pg") or "").strip()
         if raw.isdigit():
@@ -246,7 +421,7 @@ def extract_pagination_state(
             page_numbers.add(next_page)
             has_next = True
 
-    for a in t.css("section.pagination a[href], a[rel='next'][href]"):
+    for a in tree.css("section.pagination a[href], a[rel='next'][href]"):
         href = (a.attributes.get("href") or "").strip()
         if href:
             m = _page_param_re.search(href)
@@ -262,16 +437,16 @@ def extract_pagination_state(
             has_next = True
 
     if next_page is None and page_numbers:
-        greater_pages = [p for p in page_numbers if p > requested_page]
-        if greater_pages:
-            next_page = min(greater_pages)
+        candidate = min((p for p in page_numbers if p > requested_page), default=None)
+        if candidate is not None:
+            next_page = candidate
             has_next = True
 
     max_page = max(page_numbers) if page_numbers else None
 
     current_count = None
     total_count = None
-    count_node = t.css_first("section.pagination .current-page")
+    count_node = tree.css_first("section.pagination .current-page")
     if count_node:
         txt = normalize_spaces(count_node.text(separator=" ", strip=True))
         nums = [int(n) for n in re.findall(r"\d+", txt)]
@@ -282,7 +457,7 @@ def extract_pagination_state(
     return next_page, max_page, has_next, current_count, total_count
 
 
-def parse_sku(article, analytics_item: Dict[str, Any], product_meta: Dict[str, Any]) -> Optional[str]:
+def parse_sku(analytics_item: Dict[str, Any], product_meta: Dict[str, Any]) -> Optional[str]:
     sku = product_meta.get("sku")
     if sku:
         return str(sku).strip()
@@ -295,7 +470,7 @@ def parse_sku(article, analytics_item: Dict[str, Any], product_meta: Dict[str, A
     return None
 
 
-def parse_promo(article) -> Tuple[Optional[int], bool]:
+def parse_promo(article) -> Tuple[Optional[int], bool, bool, Optional[str]]:
     candidates: List[str] = []
     seen: Set[str] = set()
 
@@ -309,24 +484,7 @@ def parse_promo(article) -> Tuple[Optional[int], bool]:
         seen.add(key)
         candidates.append(txt)
 
-    for selector in (
-        ".sign-badges .badge",
-        ".offer-span",
-        ".product-discount-tag",
-        ".product-note-tag",
-        ".product-label",
-        ".product-tag",
-        ".product-badge",
-        ".product-flags_figure",
-        ".sign-new_figure",
-        "[class*='offer']",
-        "[class*='discount']",
-        "[class*='promo']",
-        "[class*='badge']",
-        "[class*='tag']",
-        "[class*='flag']",
-        "[class*='sign']",
-    ):
+    for selector in PROMO_SELECTORS:
         for node in article.css(selector):
             add_candidate(node.text(separator=" ", strip=True))
             add_candidate(node.attributes.get("title"))
@@ -336,6 +494,7 @@ def parse_promo(article) -> Tuple[Optional[int], bool]:
                 add_candidate(img.attributes.get("title"))
 
     one_plus_one = any(_one_plus_one_re.search(txt) for txt in candidates)
+    two_plus_one = any(_two_plus_one_re.search(txt) for txt in candidates)
 
     discount_percent = None
     for txt in candidates:
@@ -347,7 +506,11 @@ def parse_promo(article) -> Tuple[Optional[int], bool]:
             except ValueError:
                 pass
 
-    return discount_percent, one_plus_one
+    promo_text = candidates[0] if candidates else None
+    if discount_percent is not None or one_plus_one or two_plus_one:
+        promo_text = None
+
+    return discount_percent, one_plus_one, two_plus_one, promo_text
 
 
 def parse_product_url(article) -> Optional[str]:
@@ -398,7 +561,7 @@ def parse_image_url(article) -> Optional[str]:
     return normalize(urljoin(BASE, src))
 
 
-def parse_unit_prices(article) -> Tuple[Optional[float], Optional[float], Optional[str]]:
+def parse_unit_prices(article, main_price_block=None) -> Tuple[Optional[float], Optional[float], Optional[str]]:
     def parse_unit_block(block) -> Tuple[Optional[float], Optional[float], Optional[str]]:
         if block is None:
             return None, None, None
@@ -441,7 +604,7 @@ def parse_unit_prices(article) -> Tuple[Optional[float], Optional[float], Option
     # Some cards (especially kilo-only/liter-only) keep unit pricing in main-price.
     if final_unit_price is None and unit_of_measure is None:
         main_final, main_original, main_unit_label = parse_unit_block(
-            article.css_first(".priceWrp .main-price")
+            main_price_block if main_price_block is not None else article.css_first(".priceWrp .main-price")
         )
         main_uom = detect_unit_of_measure(main_unit_label or "")
         if main_uom is not None:
@@ -462,8 +625,8 @@ def parse_unit_prices(article) -> Tuple[Optional[float], Optional[float], Option
     return final_unit_price, original_unit_price, unit_of_measure
 
 
-def parse_main_prices(article, analytics_price: Optional[float]) -> Tuple[Optional[float], Optional[float]]:
-    block = article.css_first(".priceWrp .main-price")
+def parse_main_prices(main_price_block, analytics_price: Optional[float]) -> Tuple[Optional[float], Optional[float]]:
+    block = main_price_block
     if not block:
         return analytics_price, None
 
@@ -474,10 +637,14 @@ def parse_main_prices(article, analytics_price: Optional[float]) -> Tuple[Option
             break
 
     final_price = None
+    values: List[float] = []
     for node in block.css(".price"):
-        final_price = parse_price_number(node.text(separator=" ", strip=True))
-        if final_price is not None:
-            break
+        value = parse_price_number(node.text(separator=" ", strip=True))
+        if value is None:
+            continue
+        values.append(value)
+        if final_price is None:
+            final_price = value
 
     if final_price is None:
         final_price = parse_first_price_before_currency(block.text(separator=" ", strip=True))
@@ -486,11 +653,6 @@ def parse_main_prices(article, analytics_price: Optional[float]) -> Tuple[Option
         final_price = analytics_price
 
     if original_price is None:
-        values: List[float] = []
-        for node in block.css(".price"):
-            value = parse_price_number(node.text(separator=" ", strip=True))
-            if value is not None:
-                values.append(value)
         unique_values = sorted(set(values))
         if len(unique_values) >= 2:
             final_price = final_price if final_price is not None else unique_values[0]
@@ -513,27 +675,30 @@ def parse_listing_article(
     analytics_item = parse_analytics_item(article)
     product_meta = parse_product_meta(article)
 
-    analytics_price = None
-    if analytics_item.get("price") is not None:
-        analytics_price = parse_price_number(str(analytics_item.get("price")))
+    analytics_price = parse_analytics_price(analytics_item)
 
     name = parse_name(article, analytics_item=analytics_item)
     url = parse_product_url(article)
-    sku = parse_sku(article, analytics_item=analytics_item, product_meta=product_meta)
-    discount_percent, one_plus_one = parse_promo(article)
+    sku = parse_sku(analytics_item=analytics_item, product_meta=product_meta)
+    discount_percent, one_plus_one, two_plus_one, promo_text = parse_promo(article)
 
-    final_unit_price, original_unit_price, unit_of_measure = parse_unit_prices(article)
-    final_price, original_price = parse_main_prices(article, analytics_price=analytics_price)
+    main_price_block = article.css_first(".priceWrp .main-price")
+    final_unit_price, original_unit_price, unit_of_measure = parse_unit_prices(
+        article,
+        main_price_block=main_price_block,
+    )
+    final_price, original_price = parse_main_prices(
+        main_price_block,
+        analytics_price=analytics_price,
+    )
 
-    if final_price is None:
-        final_price = analytics_price
-
-    if (
-        final_unit_price is None
-        and original_unit_price is None
-        and final_price is not None
-    ):
-        final_unit_price = final_price
+    final_price, final_unit_price, original_price, original_unit_price = reconcile_prices(
+        final_price=final_price,
+        final_unit_price=final_unit_price,
+        original_price=original_price,
+        original_unit_price=original_unit_price,
+        analytics_price=analytics_price,
+    )
 
     if discount_percent is None:
         if final_price and original_price and original_price > final_price:
@@ -557,11 +722,15 @@ def parse_listing_article(
         and original_unit_price > final_unit_price
     )
 
-    offer = one_plus_one or discount_percent is not None or has_price_discount
+    offer = one_plus_one or two_plus_one or discount_percent is not None or has_price_discount
+    unit_of_measure = unit_of_measure or "piece"
 
     brand = analytics_item.get("item_brand")
     if brand is not None:
         brand = normalize_spaces(html.unescape(str(brand))) or None
+
+    if not url and not name and not sku:
+        return None
 
     row = ListingProductRow(
         url=url,
@@ -573,17 +742,15 @@ def parse_listing_article(
         original_price=original_price,
         original_unit_price=original_unit_price,
         unit_of_measure=unit_of_measure,
-        final_set_price=None,
-        original_set_price=None,
         discount_percent=discount_percent,
         offer=offer,
         one_plus_one=one_plus_one,
+        two_plus_one=two_plus_one,
+        promo_text=promo_text,
         image_url=parse_image_url(article),
         root_category=root_category,
     )
 
-    if not row.url and not row.name and not row.sku:
-        return None
     return row
 
 
@@ -644,7 +811,7 @@ def crawl_category_listing(
     seen_keys: Set[str] = set()
 
     page = 1
-    with httpx.Client(headers=HEADERS, timeout=30, follow_redirects=True) as client:
+    with make_http_client() as client:
         while page <= max_pages:
             url = build_page_url(root_listing, page)
             response = fetch_listing_page(client=client, url=url, page=page)
@@ -655,15 +822,21 @@ def crawl_category_listing(
 
             response.raise_for_status()
             html_text = response.text
+            t = HTMLParser(html_text)
             next_page, max_page, has_next, current_count, total_count = extract_pagination_state(
-                html_text=html_text,
+                tree=t,
                 requested_page=page,
             )
 
-            t = HTMLParser(html_text)
             articles = t.css("section.productList div[data-plugin-product]")
             if not articles:
                 articles = t.css("div[data-plugin-product]")
+            if not articles:
+                articles = t.css("div[data-plugin-analyticsimpressions]")
+                if articles:
+                    print(
+                        f"page={page} -> using fallback card selector (analytics impressions)."
+                    )
             if not articles:
                 print(f"page={page} -> 0 products, stopping.")
                 break
@@ -712,39 +885,51 @@ def crawl_category_listing(
 
 
 def save_to_csv(rows: List[ListingProductRow], filename: str) -> None:
-    if not rows:
-        print("No rows to save.")
-        return
-
-    fieldnames = list(asdict(rows[0]).keys())
+    fieldnames = [field.name for field in fields(ListingProductRow)]
     with open(filename, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
-        for row in rows:
-            writer.writerow(asdict(row))
+        writer.writerows(serialize_row_for_csv(row) for row in rows)
 
     print(f"Saved {len(rows)} rows to {filename}")
 
 
 if __name__ == "__main__":
-    for category in ROOT_CATEGORIES:
+    def process_root_category(category: str) -> None:
         try:
             root_slug = to_category_slug(category)
         except ValueError as exc:
             print(exc)
-            continue
+            return
 
         root_listing = to_category_url(root_slug)
-        print(f"\n=== category={root_slug} ({root_listing}) ===")
+        console_print(f"category={root_slug} -> start")
 
         rows = crawl_category_listing(
             root_listing=root_listing,
             root_category=root_slug,
             max_pages=MAX_PAGES_PER_CATEGORY,
         )
-        print(f"parsed from listings under {root_slug}: {len(rows)}")
+        console_print(f"category={root_slug} -> done products={len(rows)}")
 
         if SORT_PRODUCTS_FOR_CSV:
             rows.sort(key=lambda row: ((row.url or "").lower(), row.sku or "", row.name or ""))
 
         save_to_csv(rows, csv_filename_for_category(root_slug))
+
+    categories = [category for category in ROOT_CATEGORIES if category.strip()]
+    if CATEGORY_WORKERS <= 1 or len(categories) <= 1:
+        for category in categories:
+            process_root_category(category)
+    else:
+        with ThreadPoolExecutor(max_workers=min(CATEGORY_WORKERS, len(categories))) as executor:
+            futures = {
+                executor.submit(process_root_category, category): category
+                for category in categories
+            }
+            for future in as_completed(futures):
+                category = futures[future]
+                try:
+                    future.result()
+                except Exception as exc:
+                    print(f"category={category} -> failed ({exc})")
