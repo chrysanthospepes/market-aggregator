@@ -29,7 +29,6 @@ market-aggregator/
   crawlers/      One package per store crawler
   ingestion/     Listing import pipeline and management commands
   matching/      Name normalization and listing-to-product matcher
-  PLAN.md        Original implementation plan
 ```
 
 ## Core Data Model
@@ -338,6 +337,5 @@ Tests currently cover:
 
 ## Notes
 
-- `PLAN.md` is the original implementation plan. The README describes the current implemented state.
 - Default runtime settings expect PostgreSQL.
 - Test runs are easier with `--settings=config.settings_test` because that uses SQLite.
