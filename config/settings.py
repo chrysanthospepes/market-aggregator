@@ -43,6 +43,10 @@ INSTALLED_APPS = [
     'comparison.apps.ComparisonConfig',
 ]
 
+CATALOG_AUTO_SEED_STORES = True
+CATALOG_AUTO_SEED_CATEGORIES = True
+CATALOG_AUTO_SEED_CATEGORY_ALIASES = True
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',

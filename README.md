@@ -37,11 +37,14 @@ market-aggregator/
 
 - `Store`
   - Store name, unique
-  - Stores are created lazily during import with `get_or_create`
+  - Default stores are auto-seeded on app startup (`ab`, `bazaar`, `mymarket`, `masoutis`, `kritikos`, `sklavenitis`)
+  - Additional stores are still created lazily during import with `get_or_create`
 - `Category`
   - Canonical category name and slug
+  - Default categories are auto-seeded on app startup
 - `CategoryAlias`
   - Maps store-specific source category slugs to canonical categories
+  - Default store-specific aliases are auto-seeded on app startup
   - Supports store-specific aliases and global aliases
 - `Product`
   - Canonical shared product
