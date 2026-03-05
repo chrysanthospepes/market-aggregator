@@ -10,7 +10,7 @@ from unittest.mock import patch
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
-from catalog.models import Product
+from catalog.models import Category, CategoryAlias, Product, Store
 from comparison.models import MatchReview
 from crawlers import CRAWLER_MODULES, CRAWLER_RUN_ORDER
 from ingestion.models import CrawlerRun, PriceHistory, StoreListing
@@ -189,7 +189,7 @@ class ImportPipelineTests(TestCase):
         self.assertEqual([run.items_seen for run in runs], [2, 1])
         self.assertTrue(all(run.status == CrawlerRun.Status.SUCCESS for run in runs))
 
-    def test_run_matcher_from_import_skips_already_linked_listings(self):
+    def test_run_matcher_from_import_reconsiders_already_linked_listings_without_churn(self):
         first_summary = import_rows_for_store(
             store_name="sklavenitis",
             rows=[
@@ -227,9 +227,68 @@ class ImportPipelineTests(TestCase):
         listing.refresh_from_db()
 
         self.assertEqual(second_summary.updated, 1)
-        self.assertEqual(second_summary.matcher_processed, 0)
+        self.assertEqual(second_summary.matcher_processed, 1)
         self.assertEqual(second_summary.matcher_auto_matched, 0)
         self.assertEqual(second_summary.matcher_review_created, 0)
         self.assertEqual(second_summary.matcher_created_products, 0)
         self.assertEqual(Product.objects.count(), 1)
         self.assertEqual(MatchReview.objects.count(), 0)
+
+    def test_run_matcher_from_import_can_reassign_changed_matched_listing(self):
+        fruits = Category.objects.create(name="Φρούτα & Λαχανικά", slug="frouta-lachanika")
+        store = Store.objects.create(name="sklavenitis")
+        CategoryAlias.objects.create(
+            store=store,
+            source_slug="freska-froyta-lachanika",
+            category=fruits,
+        )
+
+        wrong_product = Product.objects.create(
+            canonical_name="Ανανάς ΦΡΕΣΚΟΥΛΗΣ 200g",
+            brand_normalized="freskoulis",
+            quantity_value="200",
+            quantity_unit="g",
+            category=fruits,
+        )
+        target_product = Product.objects.create(
+            canonical_name="ΦΡΕΣΚΟΥΛΗΣ Σαλάτα Ιταλική 200g",
+            brand_normalized="freskoulis",
+            quantity_value="200",
+            quantity_unit="g",
+            category=fruits,
+        )
+        listing = StoreListing.objects.create(
+            store=store,
+            store_sku="sku-reconsider",
+            store_name="Ανανάς ΦΡΕΣΚΟΥΛΗΣ 200g",
+            store_brand="Φρεσκούλης",
+            source_category="freska-froyta-lachanika",
+            url="https://example.com/sku-reconsider",
+            final_price="2.50",
+            product=wrong_product,
+        )
+
+        summary = import_rows_for_store(
+            store_name="sklavenitis",
+            rows=[
+                {
+                    "name": "ΦΡΕΣΚΟΥΛΗΣ Σαλάτα Ιταλική 200g",
+                    "sku": "sku-reconsider",
+                    "brand": "Φρεσκούλης",
+                    "root_category": "freska-froyta-lachanika",
+                    "url": "https://example.com/sku-reconsider",
+                    "final_price": "2.40",
+                }
+            ],
+            snapshot_at=timezone.now(),
+            run_matcher=True,
+            source_label="test:reconsider",
+        )
+        listing.refresh_from_db()
+
+        self.assertEqual(summary.updated, 1)
+        self.assertEqual(summary.matcher_processed, 1)
+        self.assertEqual(summary.matcher_auto_matched, 1)
+        self.assertEqual(summary.matcher_review_created, 0)
+        self.assertEqual(summary.matcher_created_products, 0)
+        self.assertEqual(listing.product_id, target_product.id)

@@ -16,6 +16,7 @@ from ingestion.models import StoreListing
 from matching.normalizer import (
     Quantity,
     build_normalized_key,
+    has_organic_marker,
     normalize_brand,
     normalize_listing_text,
     normalize_text,
@@ -27,6 +28,16 @@ AUTO_TIER_A_SIMILARITY = 0.90
 AUTO_TIER_B_SIMILARITY = 0.93
 MANUAL_REVIEW_MIN_SCORE = 0.80
 MAX_CANDIDATES = 1200
+SOFT_VARIANT_TOKENS = {
+    "ετοιμη",
+    "κλασικη",
+    "κλασικο",
+    "κλασικος",
+    "mix",
+    "μιξ",
+    "mini",
+    "family",
+}
 
 
 @dataclass
@@ -42,12 +53,22 @@ class CandidateScore:
     product: Product
     score: Decimal
     name_similarity: float
+    token_sort_similarity: float
+    token_set_similarity: float
     token_overlap: float
+    shared_token_count: int
     brand_score: float
     quantity_score: float
     category_score: float
+    organic_score: float
     category_compatible: bool
+    organic_compatible: bool
     category_resolved: bool
+    listing_is_organic: bool
+    product_is_organic: bool
+    contradictory_tokens: bool
+    listing_unique_token_count: int
+    product_unique_token_count: int
 
 
 def _token_overlap_ratio(left: str, right: str) -> float:
@@ -130,6 +151,43 @@ def _category_context_for_listing(
     return 0.0, False, True
 
 
+def _organic_context_for_listing(
+    listing: StoreListing,
+    product: Product,
+) -> tuple[float, bool, bool, bool]:
+    listing_is_organic = has_organic_marker(listing.store_name)
+    product_is_organic = has_organic_marker(product.canonical_name)
+    compatible = listing_is_organic == product_is_organic
+    return (
+        1.0 if compatible else 0.0,
+        compatible,
+        listing_is_organic,
+        product_is_organic,
+    )
+
+
+def _is_candidate_compatible(candidate: CandidateScore) -> bool:
+    return candidate.category_compatible and candidate.organic_compatible
+
+
+def _strong_unique_tokens(tokens: set[str], other_tokens: set[str]) -> set[str]:
+    return {
+        token
+        for token in (tokens - other_tokens)
+        if len(token) >= 4 and token not in SOFT_VARIANT_TOKENS
+    }
+
+
+def _has_contradictory_tokens(
+    listing_tokens: set[str],
+    product_tokens: set[str],
+) -> tuple[bool, int, int]:
+    listing_unique = _strong_unique_tokens(listing_tokens, product_tokens)
+    product_unique = _strong_unique_tokens(product_tokens, listing_tokens)
+    contradictory = bool(listing_unique and product_unique and len(listing_tokens & product_tokens) <= 2)
+    return contradictory, len(listing_unique), len(product_unique)
+
+
 def _score_candidate(listing: StoreListing, product: Product) -> CandidateScore:
     listing_norm = normalize_listing_text(name=listing.store_name, brand=listing.store_brand)
     product_name = product.canonical_name
@@ -139,7 +197,16 @@ def _score_candidate(listing: StoreListing, product: Product) -> CandidateScore:
     token_sort = fuzz.token_sort_ratio(listing_norm.normalized_name, product_name_norm) / 100.0
     token_set = fuzz.token_set_ratio(listing_norm.normalized_name, product_name_norm) / 100.0
     token_overlap = _token_overlap_ratio(listing_norm.normalized_name, product_name_norm)
-    name_similarity = max(token_sort, token_set, token_overlap)
+    listing_tokens = set(tokenize_name(listing_norm.normalized_name))
+    product_tokens = set(tokenize_name(product_name_norm))
+    shared_token_count = len(listing_tokens & product_tokens)
+    contradictory_tokens, listing_unique_count, product_unique_count = _has_contradictory_tokens(
+        listing_tokens,
+        product_tokens,
+    )
+    name_similarity = max(token_sort, token_overlap)
+    if token_set > name_similarity and shared_token_count >= 2:
+        name_similarity = token_set
     brand_score = _brand_similarity_score(
         listing_brand=listing_norm.brand_normalized,
         product_brand=product_brand,
@@ -150,28 +217,43 @@ def _score_candidate(listing: StoreListing, product: Product) -> CandidateScore:
         listing=listing,
         product=product,
     )
+    organic_score, organic_compatible, listing_is_organic, product_is_organic = _organic_context_for_listing(
+        listing=listing,
+        product=product,
+    )
 
     score = (
-        Decimal("0.45") * _to_decimal_score(name_similarity)
+        Decimal("0.40") * _to_decimal_score(name_similarity)
         + Decimal("0.20") * _to_decimal_score(brand_score)
         + Decimal("0.25") * _to_decimal_score(quantity_score)
         + Decimal("0.10") * _to_decimal_score(category_score)
+        + Decimal("0.05") * _to_decimal_score(organic_score)
     )
 
     return CandidateScore(
         product=product,
         score=score,
         name_similarity=name_similarity,
+        token_sort_similarity=token_sort,
+        token_set_similarity=token_set,
         token_overlap=token_overlap,
+        shared_token_count=shared_token_count,
         brand_score=brand_score,
         quantity_score=quantity_score,
         category_score=category_score,
+        organic_score=organic_score,
         category_compatible=category_compatible,
+        organic_compatible=organic_compatible,
         category_resolved=category_resolved,
+        listing_is_organic=listing_is_organic,
+        product_is_organic=product_is_organic,
+        contradictory_tokens=contradictory_tokens,
+        listing_unique_token_count=listing_unique_count,
+        product_unique_token_count=product_unique_count,
     )
 
 
-def _candidate_queryset(listing: StoreListing):
+def _candidate_queryset(listing: StoreListing, *, reconsider_matched: bool = False):
     listing_norm = normalize_listing_text(name=listing.store_name, brand=listing.store_brand)
     candidates = Product.objects.all()
     same_store_condition = Q(store_listings__store_id=listing.store_id)
@@ -179,7 +261,10 @@ def _candidate_queryset(listing: StoreListing):
     # Do not match an unmatched listing against products already represented by the same store.
     # This keeps same-store canonical collisions from collapsing many distinct store listings.
     if listing.product_id:
-        candidates = candidates.exclude(same_store_condition & ~Q(id=listing.product_id))
+        if reconsider_matched:
+            candidates = candidates.exclude(id=listing.product_id).exclude(same_store_condition)
+        else:
+            candidates = candidates.exclude(same_store_condition & ~Q(id=listing.product_id))
     else:
         candidates = candidates.exclude(same_store_condition)
 
@@ -216,6 +301,11 @@ def _is_category_compatible_for_listing(listing: StoreListing, product: Product)
     return compatible
 
 
+def _is_organic_compatible_for_listing(listing: StoreListing, product: Product) -> bool:
+    _, compatible, _, _ = _organic_context_for_listing(listing=listing, product=product)
+    return compatible
+
+
 def _has_other_listing_from_same_store(listing: StoreListing, product: Product) -> bool:
     return product.store_listings.filter(store_id=listing.store_id).exclude(id=listing.id).exists()
 
@@ -232,7 +322,10 @@ def _create_or_get_product_for_listing(listing: StoreListing) -> tuple[Product, 
         if existing:
             if _has_other_listing_from_same_store(listing=listing, product=existing):
                 normalized_key = None
-            elif _is_category_compatible_for_listing(listing, existing):
+            elif (
+                _is_category_compatible_for_listing(listing, existing)
+                and _is_organic_compatible_for_listing(listing, existing)
+            ):
                 return existing, False
             else:
                 normalized_key = None
@@ -255,6 +348,7 @@ def _create_or_get_product_for_listing(listing: StoreListing) -> tuple[Product, 
                 existing
                 and not _has_other_listing_from_same_store(listing=listing, product=existing)
                 and _is_category_compatible_for_listing(listing, existing)
+                and _is_organic_compatible_for_listing(listing, existing)
             ):
                 return existing, False
         raise
@@ -291,12 +385,19 @@ def _resolve_listing_category(listing: StoreListing) -> Optional[Category]:
     return Category.objects.filter(id=category_id).first()
 
 
-def _best_candidate(listing: StoreListing) -> Optional[CandidateScore]:
+def _best_candidate(listing: StoreListing, *, reconsider_matched: bool = False) -> Optional[CandidateScore]:
     best: Optional[CandidateScore] = None
-    for product in _candidate_queryset(listing):
+    best_compatible = False
+    for product in _candidate_queryset(listing, reconsider_matched=reconsider_matched):
         candidate = _score_candidate(listing=listing, product=product)
-        if best is None or candidate.score > best.score:
+        candidate_compatible = _is_candidate_compatible(candidate)
+        if (
+            best is None
+            or (candidate_compatible and not best_compatible)
+            or (candidate_compatible == best_compatible and candidate.score > best.score)
+        ):
             best = candidate
+            best_compatible = candidate_compatible
     return best
 
 
@@ -319,10 +420,20 @@ def _create_review(listing: StoreListing, candidate: CandidateScore) -> None:
             "status": MatchReview.Status.PENDING,
             "notes": (
                 f"name_similarity={candidate.name_similarity:.3f}, "
+                f"token_sort={candidate.token_sort_similarity:.3f}, "
+                f"token_set={candidate.token_set_similarity:.3f}, "
                 f"token_overlap={candidate.token_overlap:.3f}, "
+                f"shared_tokens={candidate.shared_token_count}, "
                 f"brand_score={candidate.brand_score:.3f}, "
                 f"quantity_score={candidate.quantity_score:.3f}, "
                 f"category_score={candidate.category_score:.3f}, "
+                f"organic_score={candidate.organic_score:.3f}, "
+                f"organic_compatible={candidate.organic_compatible}, "
+                f"listing_is_organic={candidate.listing_is_organic}, "
+                f"product_is_organic={candidate.product_is_organic}, "
+                f"contradictory_tokens={candidate.contradictory_tokens}, "
+                f"listing_unique_tokens={candidate.listing_unique_token_count}, "
+                f"product_unique_tokens={candidate.product_unique_token_count}, "
                 f"resolved_category={candidate.category_resolved}"
             ),
         },
@@ -332,7 +443,8 @@ def _create_review(listing: StoreListing, candidate: CandidateScore) -> None:
 def _should_auto_tier_a(candidate: CandidateScore) -> bool:
     return (
         candidate.category_resolved
-        and candidate.category_compatible
+        and _is_candidate_compatible(candidate)
+        and not candidate.contradictory_tokens
         and candidate.name_similarity >= AUTO_TIER_A_SIMILARITY
         and candidate.brand_score >= 0.95
         and candidate.quantity_score >= 0.95
@@ -342,7 +454,8 @@ def _should_auto_tier_a(candidate: CandidateScore) -> bool:
 def _should_auto_tier_b(candidate: CandidateScore) -> bool:
     return (
         candidate.category_resolved
-        and candidate.category_compatible
+        and _is_candidate_compatible(candidate)
+        and not candidate.contradictory_tokens
         and candidate.name_similarity >= AUTO_TIER_B_SIMILARITY
         and candidate.quantity_score >= 0.80
         and candidate.score >= Decimal("0.86")
@@ -352,18 +465,21 @@ def _should_auto_tier_b(candidate: CandidateScore) -> bool:
 def _should_auto_tier_c(candidate: CandidateScore) -> bool:
     return (
         candidate.category_resolved
-        and candidate.category_compatible
+        and _is_candidate_compatible(candidate)
+        and not candidate.contradictory_tokens
         and candidate.brand_score >= 0.90
         and candidate.quantity_score >= 0.95
-        and candidate.name_similarity >= 0.70
-        and candidate.score >= Decimal("0.82")
+        and candidate.name_similarity >= 0.76
+        and candidate.shared_token_count >= 2
+        and candidate.score >= Decimal("0.84")
     )
 
 
 def _should_auto_tier_d(candidate: CandidateScore) -> bool:
     return (
         candidate.category_resolved
-        and candidate.category_compatible
+        and _is_candidate_compatible(candidate)
+        and not candidate.contradictory_tokens
         and candidate.brand_score <= 0.50
         and candidate.quantity_score >= 0.95
         and candidate.name_similarity >= 0.96
@@ -382,7 +498,8 @@ def _is_no_brand_no_quantity_pair(candidate: CandidateScore) -> bool:
 def _should_auto_tier_e(candidate: CandidateScore) -> bool:
     return (
         candidate.category_resolved
-        and candidate.category_compatible
+        and _is_candidate_compatible(candidate)
+        and not candidate.contradictory_tokens
         and candidate.category_score >= 0.99
         and _is_no_brand_no_quantity_pair(candidate)
         and candidate.token_overlap >= 0.80
@@ -392,14 +509,16 @@ def _should_auto_tier_e(candidate: CandidateScore) -> bool:
 
 
 def _should_go_to_review(candidate: CandidateScore) -> bool:
-    if not candidate.category_compatible:
+    if not _is_candidate_compatible(candidate):
         return False
     if not candidate.category_resolved:
         return False
     if candidate.quantity_score == 0.0:
         # Hard quantity mismatch should not be queued as a fuzzy review candidate.
         return False
-    if candidate.name_similarity < 0.84:
+    if candidate.name_similarity < 0.74:
+        return False
+    if candidate.shared_token_count < 2 and candidate.token_overlap < 0.67:
         return False
     if candidate.brand_score < 0.65 and candidate.quantity_score < 0.70:
         return False
@@ -412,6 +531,7 @@ def match_store_listings(
     only_unmatched: bool = True,
     include_inactive: bool = False,
     limit: Optional[int] = None,
+    reconsider_matched: bool = False,
 ) -> MatchResult:
     queryset = StoreListing.objects.select_related("product", "store").order_by("id")
     if listing_ids is not None:
@@ -426,7 +546,8 @@ def match_store_listings(
     result = MatchResult()
     for listing in queryset:
         result.processed += 1
-        best = _best_candidate(listing)
+        best = _best_candidate(listing, reconsider_matched=reconsider_matched)
+        had_existing_product = listing.product_id is not None
 
         if best is not None:
             if _should_auto_tier_a(best):
@@ -455,9 +576,14 @@ def match_store_listings(
                 continue
 
             if _should_go_to_review(best):
-                _create_review(listing, best)
-                result.review_created += 1
+                if not (reconsider_matched and had_existing_product):
+                    _create_review(listing, best)
+                    result.review_created += 1
                 continue
+
+        # In reconsider mode, keep the current match unless we found a strong auto candidate above.
+        if reconsider_matched and had_existing_product:
+            continue
 
         product, created = _create_or_get_product_for_listing(listing)
         _set_listing_product(listing, product)

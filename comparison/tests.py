@@ -302,6 +302,371 @@ class MatcherTests(TestCase):
         self.assertIsNotNone(listing.product_id)
         self.assertNotEqual(listing.product_id, product.id)
 
+    def test_brand_and_quantity_only_overlap_does_not_auto_match_wrong_product(self):
+        fruits = Category.objects.create(name="Φρούτα & Λαχανικά", slug="frouta-lachanika")
+        bazaar = Store.objects.create(name="bazaar")
+        CategoryAlias.objects.create(
+            store=bazaar,
+            source_slug="froyta-lachanika",
+            category=fruits,
+        )
+        CategoryAlias.objects.create(
+            store=self.sklavenitis,
+            source_slug="freska-froyta-lachanika",
+            category=fruits,
+        )
+        wrong_existing_product = Product.objects.create(
+            canonical_name="Ανανάς ΦΡΕΣΚΟΥΛΗΣ 220g",
+            brand_normalized="freskoulis",
+            quantity_value=Decimal("220"),
+            quantity_unit="g",
+            category=fruits,
+        )
+        listing = StoreListing.objects.create(
+            store=bazaar,
+            store_sku="baz-italian-220",
+            store_name="Φρεσκούλης Έτοιμη Σαλάτα Italian 220g",
+            store_brand="Φρεσκούλης",
+            source_category="froyta-lachanika",
+            url="https://example.com/bazaar/italian-220",
+            final_price=Decimal("2.80"),
+        )
+
+        summary = match_store_listings(listing_ids=[listing.id], only_unmatched=True)
+        listing.refresh_from_db()
+
+        self.assertEqual(summary.auto_matched, 0)
+        self.assertIsNotNone(listing.product_id)
+        self.assertNotEqual(listing.product_id, wrong_existing_product.id)
+
+    def test_similar_meal_title_auto_matches_with_shared_tokens(self):
+        fruits = Category.objects.create(name="Φρούτα & Λαχανικά", slug="frouta-lachanika")
+        bazaar = Store.objects.create(name="bazaar")
+        kritikos = Store.objects.create(name="kritikos")
+        CategoryAlias.objects.create(
+            store=bazaar,
+            source_slug="froyta-lachanika",
+            category=fruits,
+        )
+        CategoryAlias.objects.create(
+            store=kritikos,
+            source_slug="manabikh",
+            category=fruits,
+        )
+        product = Product.objects.create(
+            canonical_name="Φρεσκούλης Έτοιμη Σαλάτα Italian 220g",
+            brand_normalized="freskoulis",
+            quantity_value=Decimal("220"),
+            quantity_unit="g",
+            category=fruits,
+        )
+        listing = StoreListing.objects.create(
+            store=kritikos,
+            store_sku="krit-italian-meal-220",
+            store_name="ΦΡΕΣΚΟΥΛΗΣ Γεύμα Italian Τυρί & Τοματίνια 220g",
+            store_brand="Φρεσκούλης",
+            source_category="manabikh",
+            url="https://example.com/kritikos/italian-meal-220",
+            final_price=Decimal("2.90"),
+        )
+
+        summary = match_store_listings(listing_ids=[listing.id], only_unmatched=True)
+        listing.refresh_from_db()
+
+        self.assertEqual(summary.auto_matched, 1)
+        self.assertEqual(listing.product_id, product.id)
+
+    def test_include_matched_keeps_current_product_without_reconsider_flag(self):
+        fruits = Category.objects.create(name="Φρούτα & Λαχανικά", slug="frouta-lachanika")
+        CategoryAlias.objects.create(
+            store=self.sklavenitis,
+            source_slug="freska-froyta-lachanika",
+            category=fruits,
+        )
+        CategoryAlias.objects.create(
+            store=self.mymarket,
+            source_slug="frouta-lachanika",
+            category=fruits,
+        )
+        target_product = Product.objects.create(
+            canonical_name="ΦΡΕΣΚΟΥΛΗΣ Σαλάτα Ιταλική 200g",
+            brand_normalized="freskoulis",
+            quantity_value=Decimal("200"),
+            quantity_unit="g",
+            category=fruits,
+        )
+        StoreListing.objects.create(
+            store=self.sklavenitis,
+            store_sku="sku-target-200",
+            store_name="ΦΡΕΣΚΟΥΛΗΣ Σαλάτα Ιταλική 200g",
+            store_brand="Φρεσκούλης",
+            source_category="freska-froyta-lachanika",
+            url="https://example.com/sklavenitis/italian-200",
+            final_price=Decimal("2.30"),
+            product=target_product,
+        )
+        wrong_product = Product.objects.create(
+            canonical_name="Φρεσκούλης Σαλάτα Ιταλική 200γρ.",
+            brand_normalized="freskoulis",
+            quantity_value=Decimal("200"),
+            quantity_unit="g",
+            category=fruits,
+        )
+        listing = StoreListing.objects.create(
+            store=self.mymarket,
+            store_sku="sku-current-200",
+            store_name="Φρεσκούλης Σαλάτα Ιταλική 200γρ.",
+            store_brand="Φρεσκούλης",
+            source_category="frouta-lachanika",
+            url="https://example.com/mymarket/italian-200",
+            final_price=Decimal("2.25"),
+            product=wrong_product,
+        )
+
+        match_store_listings(
+            listing_ids=[listing.id],
+            only_unmatched=False,
+        )
+        listing.refresh_from_db()
+
+        self.assertEqual(listing.product_id, wrong_product.id)
+
+    def test_reconsider_matched_can_reassign_listing_to_better_product(self):
+        fruits = Category.objects.create(name="Φρούτα & Λαχανικά", slug="frouta-lachanika")
+        CategoryAlias.objects.create(
+            store=self.sklavenitis,
+            source_slug="freska-froyta-lachanika",
+            category=fruits,
+        )
+        CategoryAlias.objects.create(
+            store=self.mymarket,
+            source_slug="frouta-lachanika",
+            category=fruits,
+        )
+        target_product = Product.objects.create(
+            canonical_name="ΦΡΕΣΚΟΥΛΗΣ Σαλάτα Ιταλική 200g",
+            brand_normalized="freskoulis",
+            quantity_value=Decimal("200"),
+            quantity_unit="g",
+            category=fruits,
+        )
+        StoreListing.objects.create(
+            store=self.sklavenitis,
+            store_sku="sku-target-200",
+            store_name="ΦΡΕΣΚΟΥΛΗΣ Σαλάτα Ιταλική 200g",
+            store_brand="Φρεσκούλης",
+            source_category="freska-froyta-lachanika",
+            url="https://example.com/sklavenitis/italian-200",
+            final_price=Decimal("2.30"),
+            product=target_product,
+        )
+        wrong_product = Product.objects.create(
+            canonical_name="Φρεσκούλης Σαλάτα Ιταλική 200γρ.",
+            brand_normalized="freskoulis",
+            quantity_value=Decimal("200"),
+            quantity_unit="g",
+            category=fruits,
+        )
+        listing = StoreListing.objects.create(
+            store=self.mymarket,
+            store_sku="sku-current-200",
+            store_name="Φρεσκούλης Σαλάτα Ιταλική 200γρ.",
+            store_brand="Φρεσκούλης",
+            source_category="frouta-lachanika",
+            url="https://example.com/mymarket/italian-200",
+            final_price=Decimal("2.25"),
+            product=wrong_product,
+        )
+
+        match_store_listings(
+            listing_ids=[listing.id],
+            only_unmatched=False,
+            reconsider_matched=True,
+        )
+        listing.refresh_from_db()
+
+        self.assertEqual(listing.product_id, target_product.id)
+
+    def test_brand_descriptor_suffix_does_not_split_same_product(self):
+        fruits = Category.objects.create(name="Φρούτα & Λαχανικά", slug="frouta-lachanika")
+        CategoryAlias.objects.create(
+            store=self.sklavenitis,
+            source_slug="freska-froyta-lachanika",
+            category=fruits,
+        )
+        CategoryAlias.objects.create(
+            store=self.mymarket,
+            source_slug="frouta-lachanika",
+            category=fruits,
+        )
+        product = Product.objects.create(
+            canonical_name="ΦΡΕΣΚΟΥΛΗΣ Σαλάτα Ιταλική 200g",
+            brand_normalized="freskoulis",
+            quantity_value=Decimal("200"),
+            quantity_unit="g",
+            category=fruits,
+        )
+        listing = StoreListing.objects.create(
+            store=self.mymarket,
+            store_sku="mm-italian-200",
+            store_name="Φρεσκούλης Σαλάτα Ιταλική 200γρ.",
+            store_brand="ΦΡΕΣΚΟΥΛΗΣ ΣΑΛΑΤΕΣ",
+            source_category="frouta-lachanika",
+            url="https://example.com/mymarket/italian-200",
+            final_price=Decimal("2.20"),
+        )
+
+        summary = match_store_listings(listing_ids=[listing.id], only_unmatched=True)
+        listing.refresh_from_db()
+
+        self.assertEqual(summary.auto_matched, 1)
+        self.assertEqual(listing.product_id, product.id)
+
+    def test_non_bio_listing_does_not_auto_match_bio_product(self):
+        fruits = Category.objects.create(name="Φρούτα & Λαχανικά", slug="frouta-lachanika")
+        CategoryAlias.objects.create(
+            store=self.sklavenitis,
+            source_slug="freska-froyta-lachanika",
+            category=fruits,
+        )
+        CategoryAlias.objects.create(
+            store=self.mymarket,
+            source_slug="frouta-lachanika",
+            category=fruits,
+        )
+        bio_product = Product.objects.create(
+            canonical_name="BIO ΦΡΕΣΚΟΥΛΗΣ Σαλάτα Ιταλική 200g",
+            brand_normalized="freskoulis",
+            quantity_value=Decimal("200"),
+            quantity_unit="g",
+            category=fruits,
+        )
+        listing = StoreListing.objects.create(
+            store=self.mymarket,
+            store_sku="mm-italian-200-nonbio",
+            store_name="ΦΡΕΣΚΟΥΛΗΣ Σαλάτα Ιταλική 200g",
+            store_brand="Φρεσκούλης",
+            source_category="frouta-lachanika",
+            url="https://example.com/mymarket/italian-200-nonbio",
+            final_price=Decimal("2.20"),
+        )
+
+        summary = match_store_listings(listing_ids=[listing.id], only_unmatched=True)
+        listing.refresh_from_db()
+
+        self.assertEqual(summary.auto_matched, 0)
+        self.assertIsNotNone(listing.product_id)
+        self.assertNotEqual(listing.product_id, bio_product.id)
+
+    def test_bio_listing_does_not_auto_match_non_bio_product(self):
+        fruits = Category.objects.create(name="Φρούτα & Λαχανικά", slug="frouta-lachanika")
+        CategoryAlias.objects.create(
+            store=self.sklavenitis,
+            source_slug="freska-froyta-lachanika",
+            category=fruits,
+        )
+        CategoryAlias.objects.create(
+            store=self.mymarket,
+            source_slug="frouta-lachanika",
+            category=fruits,
+        )
+        non_bio_product = Product.objects.create(
+            canonical_name="ΦΡΕΣΚΟΥΛΗΣ Σαλάτα Ιταλική 200g",
+            brand_normalized="freskoulis",
+            quantity_value=Decimal("200"),
+            quantity_unit="g",
+            category=fruits,
+        )
+        listing = StoreListing.objects.create(
+            store=self.mymarket,
+            store_sku="mm-italian-200-bio",
+            store_name="BIO ΦΡΕΣΚΟΥΛΗΣ Σαλάτα Ιταλική 200g",
+            store_brand="Φρεσκούλης",
+            source_category="frouta-lachanika",
+            url="https://example.com/mymarket/italian-200-bio",
+            final_price=Decimal("2.20"),
+        )
+
+        summary = match_store_listings(listing_ids=[listing.id], only_unmatched=True)
+        listing.refresh_from_db()
+
+        self.assertEqual(summary.auto_matched, 0)
+        self.assertIsNotNone(listing.product_id)
+        self.assertNotEqual(listing.product_id, non_bio_product.id)
+
+    def test_bio_listing_auto_matches_bio_product(self):
+        fruits = Category.objects.create(name="Φρούτα & Λαχανικά", slug="frouta-lachanika")
+        CategoryAlias.objects.create(
+            store=self.sklavenitis,
+            source_slug="freska-froyta-lachanika",
+            category=fruits,
+        )
+        CategoryAlias.objects.create(
+            store=self.mymarket,
+            source_slug="frouta-lachanika",
+            category=fruits,
+        )
+        bio_product = Product.objects.create(
+            canonical_name="Βιολογική ΦΡΕΣΚΟΥΛΗΣ Σαλάτα Ιταλική 200g",
+            brand_normalized="freskoulis",
+            quantity_value=Decimal("200"),
+            quantity_unit="g",
+            category=fruits,
+        )
+        listing = StoreListing.objects.create(
+            store=self.mymarket,
+            store_sku="mm-italian-200-bio-match",
+            store_name="BIO Φρεσκούλης Σαλάτα Ιταλική 200γρ.",
+            store_brand="Φρεσκούλης",
+            source_category="frouta-lachanika",
+            url="https://example.com/mymarket/italian-200-bio-match",
+            final_price=Decimal("2.20"),
+        )
+
+        summary = match_store_listings(listing_ids=[listing.id], only_unmatched=True)
+        listing.refresh_from_db()
+
+        self.assertEqual(summary.auto_matched, 1)
+        self.assertEqual(listing.product_id, bio_product.id)
+
+    def test_contradictory_tokens_block_auto_match_even_with_same_brand_and_quantity(self):
+        fruits = Category.objects.create(name="Φρούτα & Λαχανικά", slug="frouta-lachanika")
+        CategoryAlias.objects.create(
+            store=self.sklavenitis,
+            source_slug="freska-froyta-lachanika",
+            category=fruits,
+        )
+        CategoryAlias.objects.create(
+            store=self.mymarket,
+            source_slug="frouta-lachanika",
+            category=fruits,
+        )
+        existing = Product.objects.create(
+            canonical_name="Coca Cola Zero 330ml",
+            brand_normalized="coca cola",
+            quantity_value=Decimal("330"),
+            quantity_unit="ml",
+            category=fruits,
+        )
+        listing = StoreListing.objects.create(
+            store=self.mymarket,
+            store_sku="mm-coke-light-330",
+            store_name="Coca Cola Light 330ml",
+            store_brand="Coca Cola",
+            source_category="frouta-lachanika",
+            url="https://example.com/mymarket/coke-light-330",
+            final_price=Decimal("1.10"),
+        )
+
+        summary = match_store_listings(listing_ids=[listing.id], only_unmatched=True)
+        listing.refresh_from_db()
+        review = MatchReview.objects.filter(store_listing=listing, candidate_product=existing).first()
+
+        self.assertEqual(summary.auto_matched, 0)
+        self.assertEqual(summary.review_created, 1)
+        self.assertIsNone(listing.product_id)
+        self.assertIsNotNone(review)
+
 
 class ComparisonApiTests(TestCase):
     def test_product_offers_endpoint_returns_active_store_offers(self):

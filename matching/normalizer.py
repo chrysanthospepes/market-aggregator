@@ -51,12 +51,31 @@ _BRAND_VARIANTS = {
     "freskoulis": "freskoulis",
 }
 
+_BRAND_DESCRIPTOR_TOKENS = {
+    "σαλατες",
+    "salads",
+    "salad",
+    "products",
+    "προιοντα",
+    "τροφιμα",
+    "foods",
+    "food",
+}
+
 _TOKEN_CANONICAL_MAP = {
     # Common orthographic variance in Greek product titles.
     "κλασσικη": "κλασικη",
     "κλασσικος": "κλασικος",
     "κλασσικο": "κλασικο",
     "κλασσικα": "κλασικα",
+    # "έτοιμη" and "γεύμα" are frequently used interchangeably in ready-salad titles.
+    "γευμα": "ετοιμη",
+}
+
+_ORGANIC_MARKERS = {
+    "bio",
+    "organic",
+    "organics",
 }
 
 
@@ -115,7 +134,32 @@ def normalize_brand(brand: Optional[str]) -> Optional[str]:
     normalized = normalize_text(brand or "")
     if not normalized:
         return None
-    return _BRAND_VARIANTS.get(normalized, normalized)
+    direct = _BRAND_VARIANTS.get(normalized)
+    if direct is not None:
+        return direct
+
+    tokens = normalized.split()
+    if len(tokens) >= 2:
+        head = _BRAND_VARIANTS.get(tokens[0], tokens[0])
+        tail = [_BRAND_VARIANTS.get(token, token) for token in tokens[1:]]
+        if all(token in _BRAND_DESCRIPTOR_TOKENS for token in tail):
+            return head
+
+    return normalized
+
+
+def has_organic_marker(value: str) -> bool:
+    normalized = normalize_text(value or "")
+    if not normalized:
+        return False
+    for token in normalized.split():
+        if token in _ORGANIC_MARKERS:
+            return True
+        if token == "βιο":
+            return True
+        if token.startswith("βιολογ"):
+            return True
+    return False
 
 
 def _normalize_quantity(value: Decimal, unit_token: str) -> Optional[Quantity]:

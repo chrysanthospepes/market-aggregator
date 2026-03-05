@@ -9,7 +9,12 @@ from django.test import TestCase
 from catalog.models import Product, Store
 from catalog.services.product_images import ensure_product_image_from_listing
 from ingestion.models import StoreListing
-from matching.normalizer import extract_quantity, normalize_text
+from matching.normalizer import (
+    build_normalized_key,
+    extract_quantity,
+    has_organic_marker,
+    normalize_text,
+)
 
 
 class NormalizationTests(TestCase):
@@ -29,6 +34,48 @@ class NormalizationTests(TestCase):
         assert quantity is not None
         self.assertEqual(str(quantity.value), "425")
         self.assertEqual(quantity.unit, "g")
+
+    def test_normalize_brand_collapses_descriptor_suffixes(self):
+        from matching.normalizer import normalize_brand
+
+        self.assertEqual(normalize_brand("ΦΡΕΣΚΟΥΛΗΣ"), "freskoulis")
+        self.assertEqual(normalize_brand("ΦΡΕΣΚΟΥΛΗΣ ΣΑΛΑΤΕΣ"), "freskoulis")
+        self.assertEqual(normalize_brand("Freskoulis Salads"), "freskoulis")
+
+    def test_build_normalized_key_treats_geyma_and_etoimi_as_equivalent(self):
+        qty_a = extract_quantity("Φρεσκούλης Έτοιμη Σαλάτα Italian 220g")
+        qty_b = extract_quantity("Φρεσκούλης Σαλάτα Γεύμα Italian 220γρ")
+        key_a = build_normalized_key(
+            name="Φρεσκούλης Έτοιμη Σαλάτα Italian 220g",
+            brand="Φρεσκούλης",
+            quantity=qty_a,
+        )
+        key_b = build_normalized_key(
+            name="Φρεσκούλης Σαλάτα Γεύμα Italian 220γρ",
+            brand="Φρεσκούλης",
+            quantity=qty_b,
+        )
+        self.assertEqual(key_a, key_b)
+
+    def test_build_normalized_key_treats_brand_descriptor_suffix_as_equivalent(self):
+        qty_a = extract_quantity("ΦΡΕΣΚΟΥΛΗΣ Σαλάτα Ιταλική 200g")
+        qty_b = extract_quantity("Φρεσκούλης Σαλάτα Ιταλική 200γρ.")
+        key_a = build_normalized_key(
+            name="ΦΡΕΣΚΟΥΛΗΣ Σαλάτα Ιταλική 200g",
+            brand="ΦΡΕΣΚΟΥΛΗΣ",
+            quantity=qty_a,
+        )
+        key_b = build_normalized_key(
+            name="Φρεσκούλης Σαλάτα Ιταλική 200γρ.",
+            brand="ΦΡΕΣΚΟΥΛΗΣ ΣΑΛΑΤΕΣ",
+            quantity=qty_b,
+        )
+        self.assertEqual(key_a, key_b)
+
+    def test_has_organic_marker_detects_greek_and_latin_markers(self):
+        self.assertTrue(has_organic_marker("Βιολογικές ντομάτες"))
+        self.assertTrue(has_organic_marker("BIO tomatoes"))
+        self.assertFalse(has_organic_marker("Ντομάτες"))
 
 
 class ProductImageTests(TestCase):

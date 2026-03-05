@@ -262,8 +262,9 @@ def import_rows_for_store(
 
         match_summary = match_store_listings(
             listing_ids=changed_listing_ids,
-            only_unmatched=True,
+            only_unmatched=False,
             include_inactive=False,
+            reconsider_matched=True,
         )
         summary.matcher_processed = match_summary.processed
         summary.matcher_auto_matched = match_summary.auto_matched

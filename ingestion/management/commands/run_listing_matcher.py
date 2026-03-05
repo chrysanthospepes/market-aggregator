@@ -26,6 +26,14 @@ class Command(BaseCommand):
             help="Include listings that are already linked to a product.",
         )
         parser.add_argument(
+            "--reconsider-matched",
+            action="store_true",
+            help=(
+                "When combined with --include-matched, temporarily exclude the current product "
+                "from candidate search so strong alternatives can replace it."
+            ),
+        )
+        parser.add_argument(
             "--include-inactive",
             action="store_true",
             help="Include inactive listings.",
@@ -55,6 +63,7 @@ class Command(BaseCommand):
             only_unmatched=only_unmatched,
             include_inactive=options["include_inactive"],
             limit=options.get("limit"),
+            reconsider_matched=options["reconsider_matched"],
         )
 
         self.stdout.write(
