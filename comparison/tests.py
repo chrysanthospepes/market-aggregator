@@ -841,8 +841,8 @@ class ComparisonHtmlViewsTests(TestCase):
         response = self.client.get(reverse("product-list"), {"sort": "unit_price_asc"})
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "1.5000")
-        self.assertContains(response, "3.2000")
+        self.assertContains(response, "1.50")
+        self.assertContains(response, "3.20")
         content = response.content.decode("utf-8")
         self.assertLess(content.index("Low unit price"), content.index("High unit price"))
         self.assertLess(content.index("High unit price"), content.index("No unit price"))
@@ -922,8 +922,68 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertContains(response, "AB and Bazaar")
         self.assertNotContains(response, "Only Bazaar")
         self.assertEqual(set(response.context["selected_store_ids"]), {store_a.id})
+        filtered_both = next(p for p in response.context["products"] if p.id == product_both.id)
+        self.assertEqual(filtered_both.active_listing_count, 2)
+        self.assertContains(response, "2 stores")
         self.assertContains(response, f'value="{store_a.id}"')
         self.assertContains(response, f'?sort=unit_price_asc&amp;stores={store_a.id}')
+
+    def test_selected_stores_drive_product_card_prices_only(self):
+        sklavenitis = Store.objects.create(name="sklavenitis")
+        kritikos = Store.objects.create(name="kritikos")
+        mymarket = Store.objects.create(name="mymarket")
+        product = Product.objects.create(canonical_name="Shared product")
+
+        StoreListing.objects.create(
+            store=sklavenitis,
+            store_sku="shared-skl",
+            store_name="Shared product Sklavenitis",
+            url="https://example.com/shared-skl",
+            final_price=Decimal("2.00"),
+            final_unit_price=Decimal("2.00"),
+            product=product,
+            is_active=True,
+        )
+        StoreListing.objects.create(
+            store=kritikos,
+            store_sku="shared-kri",
+            store_name="Shared product Kritikos",
+            url="https://example.com/shared-kri",
+            final_price=Decimal("1.00"),
+            final_unit_price=Decimal("1.00"),
+            product=product,
+            is_active=True,
+        )
+        StoreListing.objects.create(
+            store=mymarket,
+            store_sku="shared-my",
+            store_name="Shared product Mymarket",
+            url="https://example.com/shared-my",
+            final_price=Decimal("0.80"),
+            final_unit_price=Decimal("0.80"),
+            product=product,
+            is_active=True,
+        )
+
+        response_all = self.client.get(reverse("product-list"))
+        product_all = next(p for p in response_all.context["products"] if p.id == product.id)
+        self.assertEqual(product_all.cheapest_final_unit_price, Decimal("0.80"))
+        self.assertEqual(product_all.cheapest_final_price, Decimal("0.80"))
+
+        response_skl_only = self.client.get(reverse("product-list"), {"stores": [sklavenitis.id]})
+        product_skl = next(p for p in response_skl_only.context["products"] if p.id == product.id)
+        self.assertEqual(product_skl.cheapest_final_unit_price, Decimal("2.00"))
+        self.assertEqual(product_skl.cheapest_final_price, Decimal("2.00"))
+        self.assertEqual(product_skl.active_listing_count, 3)
+
+        response_two = self.client.get(
+            reverse("product-list"),
+            {"stores": [sklavenitis.id, kritikos.id]},
+        )
+        product_two = next(p for p in response_two.context["products"] if p.id == product.id)
+        self.assertEqual(product_two.cheapest_final_unit_price, Decimal("1.00"))
+        self.assertEqual(product_two.cheapest_final_price, Decimal("1.00"))
+        self.assertEqual(product_two.active_listing_count, 3)
 
     def test_product_list_card_shows_price_and_struck_original_values(self):
         store = Store.objects.create(name="sklavenitis")
@@ -946,7 +1006,7 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Card product")
         self.assertContains(response, "<s>2.10</s>", html=True)
-        self.assertContains(response, "<s>1.9000</s>", html=True)
+        self.assertContains(response, "<s>1.90</s>", html=True)
         self.assertContains(response, "1 store")
 
 

@@ -30,10 +30,13 @@ def _selected_store_query(selected_store_ids: list[int]) -> str:
 def product_list(request):
     sort = request.GET.get("sort", "name")
     selected_store_ids = _parse_selected_store_ids(request.GET.getlist("stores"))
-    active_listings = StoreListing.objects.filter(
-        product_id=OuterRef("pk"),
-        is_active=True,
-    )
+    active_listings = StoreListing.objects.filter(product_id=OuterRef("pk"), is_active=True)
+    all_active_listing_filter = Q(store_listings__is_active=True)
+    selected_listing_filter = all_active_listing_filter
+    if selected_store_ids:
+        active_listings = active_listings.filter(store_id__in=selected_store_ids)
+        selected_listing_filter &= Q(store_listings__store_id__in=selected_store_ids)
+
     cheapest_price_listing = active_listings.exclude(final_price__isnull=True).order_by(
         "final_price",
         "id",
@@ -44,15 +47,17 @@ def product_list(request):
         .annotate(
             active_listing_count=Count(
                 "store_listings",
-                filter=Q(store_listings__is_active=True),
+                filter=all_active_listing_filter,
+                distinct=True,
+            ),
+            selected_store_listing_count=Count(
+                "store_listings",
+                filter=selected_listing_filter,
                 distinct=True,
             ),
             lowest_final_unit_price=Min(
                 "store_listings__final_unit_price",
-                filter=Q(
-                    store_listings__is_active=True,
-                    store_listings__final_unit_price__isnull=False,
-                ),
+                filter=selected_listing_filter & Q(store_listings__final_unit_price__isnull=False),
             ),
             cheapest_final_price=Subquery(cheapest_price_listing.values("final_price")[:1]),
             cheapest_original_price=Subquery(cheapest_price_listing.values("original_price")[:1]),
@@ -66,14 +71,8 @@ def product_list(request):
                 output_field=IntegerField(),
             )
         )
-        .filter(active_listing_count__gt=0)
+        .filter(selected_store_listing_count__gt=0)
     )
-
-    if selected_store_ids:
-        products = products.filter(
-            store_listings__is_active=True,
-            store_listings__store_id__in=selected_store_ids,
-        ).distinct()
 
     if sort == "unit_price_asc":
         products = products.order_by(
