@@ -22,7 +22,12 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 test.sqlite3
-media/
+# Keep media ignored by default, but track curated assets.
+media/*
+!media/discounts/
+!media/discounts/**
+!media/stores/
+!media/stores/**
 staticfiles/
 
 # Environment and secrets

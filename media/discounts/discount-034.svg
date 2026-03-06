@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
+
+  <path
+    fill="#f59e0b"
+    d="
+    M32 6
+    L37 11
+    L44 9
+    L48 16
+    L55 18
+    L53 25
+    L58 32
+    L53 39
+    L55 46
+    L48 48
+    L44 55
+    L37 53
+    L32 58
+    L27 53
+    L20 55
+    L16 48
+    L9 46
+    L11 39
+    L6 32
+    L11 25
+    L9 18
+    L16 16
+    L20 9
+    L27 11
+    Z"
+  />
+
+  <path
+    fill="url(#shine)"
+    fill-opacity="0.18"
+    d="
+    M32 6
+    L37 11
+    L44 9
+    L48 16
+    L55 18
+    L53 25
+    L58 32
+    L53 39
+    L55 46
+    L48 48
+    L44 55
+    L37 53
+    L32 58
+    L27 53
+    L20 55
+    L16 48
+    L9 46
+    L11 39
+    L6 32
+    L11 25
+    L9 18
+    L16 16
+    L20 9
+    L27 11
+    Z"
+  />
+
+  <defs>
+    <linearGradient id="shine" x1="16" y1="12" x2="48" y2="52" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <text
+    x="32"
+    y="32"
+    text-anchor="middle"
+    dominant-baseline="middle"
+    font-family="Inter, Arial, Helvetica, sans-serif"
+    font-size="16"
+    font-weight="700"
+    fill="#ffffff">34%</text>
+
+</svg>
