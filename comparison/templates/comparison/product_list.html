@@ -7,7 +7,7 @@
   <style>
     body {
       font-family: sans-serif;
-      max-width: 960px;
+      max-width: 1480px;
       margin: 2rem auto;
       padding: 0 1rem;
       line-height: 1.4;
@@ -17,8 +17,28 @@
     }
     .product-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      grid-template-columns: repeat(5, minmax(0, 1fr));
       gap: 1rem;
+    }
+    @media (max-width: 1280px) {
+      .product-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+    }
+    @media (max-width: 980px) {
+      .product-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+    @media (max-width: 760px) {
+      .product-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @media (max-width: 520px) {
+      .product-grid {
+        grid-template-columns: 1fr;
+      }
     }
     .product-card {
       border: 1px solid #ddd;
@@ -74,6 +94,35 @@
       margin-left: 0.35rem;
       font-size: 0.8rem;
       color: #777;
+    }
+    .pagination {
+      margin-top: 1.2rem;
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .pagination .meta {
+      color: #555;
+      margin-right: 0.5rem;
+    }
+    .pagination a {
+      display: inline-block;
+      padding: 0.35rem 0.55rem;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      color: #0a58ca;
+      text-decoration: none;
+    }
+    .pagination a:hover {
+      background: #f3f7ff;
+    }
+    .pagination strong {
+      display: inline-block;
+      padding: 0.35rem 0.55rem;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      background: #eef3ff;
     }
   </style>
 </head>
@@ -135,6 +184,27 @@
         </article>
       {% endfor %}
     </section>
+    {% if page_obj.has_other_pages %}
+      <nav class="pagination" aria-label="Products pagination">
+        <span class="meta">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+
+        {% if page_obj.has_previous %}
+          <a href="?sort={{ sort }}&page={{ page_obj.previous_page_number }}">Previous</a>
+        {% endif %}
+
+        {% for page_number in page_obj.paginator.page_range %}
+          {% if page_number == page_obj.number %}
+            <strong>{{ page_number }}</strong>
+          {% else %}
+            <a href="?sort={{ sort }}&page={{ page_number }}">{{ page_number }}</a>
+          {% endif %}
+        {% endfor %}
+
+        {% if page_obj.has_next %}
+          <a href="?sort={{ sort }}&page={{ page_obj.next_page_number }}">Next</a>
+        {% endif %}
+      </nav>
+    {% endif %}
   {% else %}
     <p>No products available yet.</p>
   {% endif %}

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from django.core.paginator import Paginator
 from django.db.models import Case, Count, IntegerField, Min, OuterRef, Q, Subquery, Value, When
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
 
 from catalog.models import Product
 from ingestion.models import StoreListing
+
+PRODUCTS_PER_PAGE = 20
 
 
 def product_list(request):
@@ -58,11 +61,15 @@ def product_list(request):
     else:
         products = products.order_by("canonical_name")
 
+    paginator = Paginator(products, PRODUCTS_PER_PAGE)
+    page_obj = paginator.get_page(request.GET.get("page"))
+
     return render(
         request,
         "comparison/product_list.html",
         {
-            "products": products,
+            "products": page_obj.object_list,
+            "page_obj": page_obj,
             "sort": sort,
         },
     )

@@ -705,6 +705,30 @@ class ComparisonApiTests(TestCase):
 
 
 class ComparisonHtmlViewsTests(TestCase):
+    def _create_product_with_listing(
+        self,
+        *,
+        store: Store,
+        name: str,
+        sku: str,
+        final_price: str = "1.00",
+        final_unit_price: str | None = None,
+    ) -> Product:
+        product = Product.objects.create(canonical_name=name)
+        listing_kwargs = {
+            "store": store,
+            "store_sku": sku,
+            "store_name": name,
+            "url": f"https://example.com/{sku}",
+            "final_price": Decimal(final_price),
+            "product": product,
+            "is_active": True,
+        }
+        if final_unit_price is not None:
+            listing_kwargs["final_unit_price"] = Decimal(final_unit_price)
+        StoreListing.objects.create(**listing_kwargs)
+        return product
+
     def test_product_list_shows_products_with_active_listings_only(self):
         store = Store.objects.create(name="sklavenitis")
         visible_product = Product.objects.create(canonical_name="Ντομάτα 1kg")
@@ -822,6 +846,45 @@ class ComparisonHtmlViewsTests(TestCase):
         content = response.content.decode("utf-8")
         self.assertLess(content.index("Low unit price"), content.index("High unit price"))
         self.assertLess(content.index("High unit price"), content.index("No unit price"))
+
+    def test_product_list_paginates_to_twenty_items(self):
+        store = Store.objects.create(name="sklavenitis")
+        for i in range(1, 22):
+            self._create_product_with_listing(
+                store=store,
+                name=f"Product {i:03d}",
+                sku=f"sku-{i:03d}",
+            )
+
+        response = self.client.get(reverse("product-list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context["products"]), 20)
+        self.assertEqual(response.context["page_obj"].number, 1)
+        self.assertTrue(response.context["page_obj"].has_next())
+        self.assertContains(response, "Page 1 of 2")
+        self.assertContains(response, "Product 001")
+        self.assertContains(response, "Product 020")
+        self.assertNotContains(response, "Product 021")
+
+    def test_product_list_second_page_shows_remaining_items(self):
+        store = Store.objects.create(name="sklavenitis")
+        for i in range(1, 22):
+            self._create_product_with_listing(
+                store=store,
+                name=f"Product {i:03d}",
+                sku=f"sku-{i:03d}",
+            )
+
+        response = self.client.get(reverse("product-list"), {"page": 2})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context["products"]), 1)
+        self.assertEqual(response.context["page_obj"].number, 2)
+        self.assertTrue(response.context["page_obj"].has_previous())
+        self.assertContains(response, "Page 2 of 2")
+        self.assertContains(response, "Product 021")
+        self.assertNotContains(response, "Product 020")
 
     def test_product_list_card_shows_price_and_struck_original_values(self):
         store = Store.objects.create(name="sklavenitis")
