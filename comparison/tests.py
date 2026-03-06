@@ -867,6 +867,82 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertLess(content.index("Low unit price"), content.index("High unit price"))
         self.assertLess(content.index("High unit price"), content.index("No unit price"))
 
+    def test_product_list_price_sort_uses_hidden_price_for_ordering_only(self):
+        store = Store.objects.create(name="sklavenitis")
+        low_visible_high_hidden = Product.objects.create(canonical_name="Low visible high hidden")
+        high_visible_low_hidden = Product.objects.create(canonical_name="High visible low hidden")
+
+        StoreListing.objects.create(
+            store=store,
+            store_sku="visible-low",
+            store_name="visible-low",
+            url="https://example.com/visible-low",
+            final_price=Decimal("1.00"),
+            hidden_price=Decimal("5.00"),
+            product=low_visible_high_hidden,
+            is_active=True,
+        )
+        StoreListing.objects.create(
+            store=store,
+            store_sku="visible-high",
+            store_name="visible-high",
+            url="https://example.com/visible-high",
+            final_price=Decimal("4.00"),
+            hidden_price=Decimal("0.90"),
+            product=high_visible_low_hidden,
+            is_active=True,
+        )
+
+        response = self.client.get(reverse("product-list"), {"sort": "price_asc"})
+
+        self.assertEqual(response.status_code, 200)
+        ordered_names = [product.canonical_name for product in response.context["products"]]
+        self.assertEqual(
+            ordered_names,
+            ["High visible low hidden", "Low visible high hidden"],
+        )
+        self.assertContains(response, "1.00€")
+        self.assertContains(response, "4.00€")
+
+    def test_product_list_unit_price_sort_uses_hidden_unit_price_for_ordering_only(self):
+        store = Store.objects.create(name="sklavenitis")
+        low_visible_high_hidden = Product.objects.create(canonical_name="Low unit visible high hidden")
+        high_visible_low_hidden = Product.objects.create(canonical_name="High unit visible low hidden")
+
+        StoreListing.objects.create(
+            store=store,
+            store_sku="unit-visible-low",
+            store_name="unit-visible-low",
+            url="https://example.com/unit-visible-low",
+            final_price=Decimal("1.00"),
+            final_unit_price=Decimal("1.00"),
+            hidden_unit_price=Decimal("6.00"),
+            product=low_visible_high_hidden,
+            is_active=True,
+        )
+        StoreListing.objects.create(
+            store=store,
+            store_sku="unit-visible-high",
+            store_name="unit-visible-high",
+            url="https://example.com/unit-visible-high",
+            final_price=Decimal("1.20"),
+            final_unit_price=Decimal("3.00"),
+            hidden_unit_price=Decimal("0.80"),
+            product=high_visible_low_hidden,
+            is_active=True,
+        )
+
+        response = self.client.get(reverse("product-list"), {"sort": "unit_price_asc"})
+
+        self.assertEqual(response.status_code, 200)
+        ordered_names = [product.canonical_name for product in response.context["products"]]
+        self.assertEqual(
+            ordered_names,
+            ["High unit visible low hidden", "Low unit visible high hidden"],
+        )
+        self.assertContains(response, "1.00€/τεμάχιο")
+        self.assertContains(response, "3.00€/τεμάχιο")
+
     def test_product_list_can_sort_by_declining_price(self):
         store = Store.objects.create(name="sklavenitis")
         low = Product.objects.create(canonical_name="Low price")

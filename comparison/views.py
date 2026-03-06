@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.conf import settings
 from django.core.paginator import Paginator
 from django.db.models import Case, Count, F, IntegerField, Min, OuterRef, Q, Subquery, Value, When
+from django.db.models.functions import Coalesce
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils.http import urlencode
@@ -114,6 +115,11 @@ def product_list(request):
         active_listings = active_listings.filter(store_id__in=selected_store_ids)
         selected_listing_filter &= Q(store_listings__store_id__in=selected_store_ids)
 
+    cheapest_sort_price_listing = (
+        active_listings.annotate(sort_price=Coalesce("hidden_price", "final_price"))
+        .exclude(sort_price__isnull=True)
+        .order_by("sort_price", "id")
+    )
     cheapest_price_listing = active_listings.exclude(final_price__isnull=True).order_by(
         "final_price",
         "id",
@@ -132,10 +138,19 @@ def product_list(request):
                 filter=selected_listing_filter,
                 distinct=True,
             ),
+            lowest_sort_unit_price=Min(
+                Coalesce("store_listings__hidden_unit_price", "store_listings__final_unit_price"),
+                filter=selected_listing_filter
+                & (
+                    Q(store_listings__hidden_unit_price__isnull=False)
+                    | Q(store_listings__final_unit_price__isnull=False)
+                ),
+            ),
             lowest_final_unit_price=Min(
                 "store_listings__final_unit_price",
                 filter=selected_listing_filter & Q(store_listings__final_unit_price__isnull=False),
             ),
+            cheapest_sort_price=Subquery(cheapest_sort_price_listing.values("sort_price")[:1]),
             cheapest_final_price=Subquery(cheapest_price_listing.values("final_price")[:1]),
             cheapest_original_price=Subquery(cheapest_price_listing.values("original_price")[:1]),
             cheapest_final_unit_price=Subquery(cheapest_price_listing.values("final_unit_price")[:1]),
@@ -153,12 +168,12 @@ def product_list(request):
             cheapest_two_plus_one=Subquery(cheapest_price_listing.values("two_plus_one")[:1]),
             cheapest_offer_text=Subquery(cheapest_price_listing.values("offer")[:1]),
             no_unit_price_sort=Case(
-                When(lowest_final_unit_price__isnull=True, then=Value(1)),
+                When(lowest_sort_unit_price__isnull=True, then=Value(1)),
                 default=Value(0),
                 output_field=IntegerField(),
             ),
             no_price_sort=Case(
-                When(cheapest_final_price__isnull=True, then=Value(1)),
+                When(cheapest_sort_price__isnull=True, then=Value(1)),
                 default=Value(0),
                 output_field=IntegerField(),
             ),
@@ -211,25 +226,25 @@ def product_list(request):
     if sort == "price_asc":
         products = products.order_by(
             "no_price_sort",
-            "cheapest_final_price",
+            "cheapest_sort_price",
             "canonical_name",
         )
     elif sort == "price_desc":
         products = products.order_by(
             "no_price_sort",
-            "-cheapest_final_price",
+            "-cheapest_sort_price",
             "canonical_name",
         )
     elif sort == "unit_price_asc":
         products = products.order_by(
             "no_unit_price_sort",
-            "lowest_final_unit_price",
+            "lowest_sort_unit_price",
             "canonical_name",
         )
     elif sort == "unit_price_desc":
         products = products.order_by(
             "no_unit_price_sort",
-            "-lowest_final_unit_price",
+            "-lowest_sort_unit_price",
             "canonical_name",
         )
     elif sort == "discount_desc":
@@ -237,7 +252,7 @@ def product_list(request):
             "discount_sort_group",
             "-discount_sort_value",
             "no_price_sort",
-            "cheapest_final_price",
+            "cheapest_sort_price",
             "canonical_name",
         )
     else:
