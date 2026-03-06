@@ -21,8 +21,8 @@ class StoreListing(models.Model):
         blank=True,
     )
     final_unit_price = models.DecimalField(
-        max_digits=12,
-        decimal_places=4,
+        max_digits=10,
+        decimal_places=2,
         null=True,
         blank=True,
     )
@@ -33,8 +33,8 @@ class StoreListing(models.Model):
         blank=True,
     )
     hidden_unit_price = models.DecimalField(
-        max_digits=12,
-        decimal_places=4,
+        max_digits=10,
+        decimal_places=2,
         null=True,
         blank=True,
     )
@@ -45,8 +45,8 @@ class StoreListing(models.Model):
         blank=True,
     )
     original_unit_price = models.DecimalField(
-        max_digits=12,
-        decimal_places=4,
+        max_digits=10,
+        decimal_places=2,
         null=True,
         blank=True,
     )
