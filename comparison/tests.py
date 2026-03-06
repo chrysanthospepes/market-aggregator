@@ -867,6 +867,70 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertLess(content.index("Low unit price"), content.index("High unit price"))
         self.assertLess(content.index("High unit price"), content.index("No unit price"))
 
+    def test_product_list_can_sort_by_declining_price(self):
+        store = Store.objects.create(name="sklavenitis")
+        low = Product.objects.create(canonical_name="Low price")
+        high = Product.objects.create(canonical_name="High price")
+
+        StoreListing.objects.create(
+            store=store,
+            store_sku="low-price",
+            store_name="Low listing",
+            url="https://example.com/low-price",
+            final_price=Decimal("1.10"),
+            final_unit_price=Decimal("1.10"),
+            product=low,
+            is_active=True,
+        )
+        StoreListing.objects.create(
+            store=store,
+            store_sku="high-price",
+            store_name="High listing",
+            url="https://example.com/high-price",
+            final_price=Decimal("3.25"),
+            final_unit_price=Decimal("3.25"),
+            product=high,
+            is_active=True,
+        )
+
+        response = self.client.get(reverse("product-list"), {"sort": "price_desc"})
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertLess(content.index("High price"), content.index("Low price"))
+
+    def test_product_list_can_sort_by_declining_discount_with_offer_priority(self):
+        store = Store.objects.create(name="sklavenitis")
+
+        def create_listing(name: str, sku: str, **listing_kwargs):
+            product = Product.objects.create(canonical_name=name)
+            StoreListing.objects.create(
+                store=store,
+                store_sku=sku,
+                store_name=name,
+                url=f"https://example.com/{sku}",
+                final_price=Decimal("1.00"),
+                final_unit_price=Decimal("1.00"),
+                product=product,
+                is_active=True,
+                **listing_kwargs,
+            )
+
+        create_listing("Discount 20", "disc-20", offer="-20%", discount_percent=20)
+        create_listing("Discount 45", "disc-45", offer="-45%", discount_percent=45)
+        create_listing("One plus one", "offer-1p1", offer="1+1", one_plus_one=True)
+        create_listing("Two plus one", "offer-2p1", offer="2+1", two_plus_one=True)
+        create_listing("No offer", "offer-none", offer=None)
+
+        response = self.client.get(reverse("product-list"), {"sort": "discount_desc"})
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertLess(content.index("Discount 45"), content.index("Discount 20"))
+        self.assertLess(content.index("Discount 20"), content.index("One plus one"))
+        self.assertLess(content.index("One plus one"), content.index("Two plus one"))
+        self.assertLess(content.index("Two plus one"), content.index("No offer"))
+
     def test_product_list_paginates_to_twenty_items(self):
         store = Store.objects.create(name="sklavenitis")
         for i in range(1, 22):
@@ -946,7 +1010,8 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertEqual(filtered_both.active_listing_count, 2)
         self.assertContains(response, "2 stores")
         self.assertContains(response, f'value="{store_a.id}"')
-        self.assertContains(response, f'?sort=unit_price_asc&amp;stores={store_a.id}')
+        self.assertEqual(response.context["sort"], "price_asc")
+        self.assertIn(f"&stores={store_a.id}", response.context["selected_filters_query"])
 
     def test_selected_stores_drive_product_card_prices_only(self):
         sklavenitis = Store.objects.create(name="sklavenitis")

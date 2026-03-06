@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from django.conf import settings
 from django.core.paginator import Paginator
-from django.db.models import Case, Count, IntegerField, Min, OuterRef, Q, Subquery, Value, When
+from django.db.models import Case, Count, F, IntegerField, Min, OuterRef, Q, Subquery, Value, When
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils.http import urlencode
@@ -11,6 +11,14 @@ from catalog.models import Product, Store
 from ingestion.models import StoreListing
 
 PRODUCTS_PER_PAGE = 20
+DEFAULT_SORT = "price_asc"
+SORT_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("price_asc", "Increasing price"),
+    ("price_desc", "Declining price"),
+    ("unit_price_asc", "Increasing unit price"),
+    ("unit_price_desc", "Declining unit price"),
+    ("discount_desc", "Declining discount"),
+)
 OFFER_FILTER_OPTIONS: tuple[tuple[str, str], ...] = (
     ("no_offer", "No offer"),
     ("discount_0_20", "Up to 20%"),
@@ -45,6 +53,14 @@ def _parse_selected_offer_filters(raw_values: list[str]) -> list[str]:
         if value in valid_offer_filter_values:
             selected.append(value)
     return list(dict.fromkeys(selected))
+
+
+def _parse_sort(raw_value: str | None) -> str:
+    valid_sort_values = {value for value, _ in SORT_OPTIONS}
+    value = (raw_value or "").strip()
+    if value in valid_sort_values:
+        return value
+    return DEFAULT_SORT
 
 
 def _offer_filter_condition(offer_filter: str) -> Q:
@@ -87,7 +103,7 @@ def _selected_filters_query(
 
 
 def product_list(request):
-    sort = request.GET.get("sort", "name")
+    sort = _parse_sort(request.GET.get("sort"))
     selected_category_filter = (request.GET.get("category") or "").strip()
     selected_store_ids = _parse_selected_store_ids(request.GET.getlist("stores"))
     selected_offer_filters = _parse_selected_offer_filters(request.GET.getlist("offer_filter"))
@@ -140,7 +156,24 @@ def product_list(request):
                 When(lowest_final_unit_price__isnull=True, then=Value(1)),
                 default=Value(0),
                 output_field=IntegerField(),
-            )
+            ),
+            no_price_sort=Case(
+                When(cheapest_final_price__isnull=True, then=Value(1)),
+                default=Value(0),
+                output_field=IntegerField(),
+            ),
+            discount_sort_group=Case(
+                When(cheapest_discount_percent__gt=0, then=Value(0)),
+                When(cheapest_one_plus_one=True, then=Value(1)),
+                When(cheapest_two_plus_one=True, then=Value(2)),
+                default=Value(3),
+                output_field=IntegerField(),
+            ),
+            discount_sort_value=Case(
+                When(cheapest_discount_percent__isnull=True, then=Value(-1)),
+                default=F("cheapest_discount_percent"),
+                output_field=IntegerField(),
+            ),
         )
         .filter(selected_store_listing_count__gt=0)
     )
@@ -175,10 +208,36 @@ def product_list(request):
             selected_offer_q |= _offer_filter_condition(offer_filter)
         products = products.filter(selected_offer_q)
 
-    if sort == "unit_price_asc":
+    if sort == "price_asc":
+        products = products.order_by(
+            "no_price_sort",
+            "cheapest_final_price",
+            "canonical_name",
+        )
+    elif sort == "price_desc":
+        products = products.order_by(
+            "no_price_sort",
+            "-cheapest_final_price",
+            "canonical_name",
+        )
+    elif sort == "unit_price_asc":
         products = products.order_by(
             "no_unit_price_sort",
             "lowest_final_unit_price",
+            "canonical_name",
+        )
+    elif sort == "unit_price_desc":
+        products = products.order_by(
+            "no_unit_price_sort",
+            "-lowest_final_unit_price",
+            "canonical_name",
+        )
+    elif sort == "discount_desc":
+        products = products.order_by(
+            "discount_sort_group",
+            "-discount_sort_value",
+            "no_price_sort",
+            "cheapest_final_price",
             "canonical_name",
         )
     else:
@@ -229,6 +288,7 @@ def product_list(request):
             "products": page_products,
             "page_obj": page_obj,
             "sort": sort,
+            "sort_options": SORT_OPTIONS,
             "stores": stores,
             "selected_store_ids": selected_store_ids,
             "selected_store_query": _selected_store_query(selected_store_ids),

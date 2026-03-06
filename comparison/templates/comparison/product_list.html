@@ -15,6 +15,33 @@
     .toolbar {
       margin-bottom: 1rem;
     }
+    .sort-form {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+    .sort-form label {
+      font-size: 0.95rem;
+      color: #333;
+    }
+    .sort-form select {
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 0.35rem 0.55rem;
+      background: #fff;
+      font-size: 0.92rem;
+      color: #222;
+    }
+    .sort-form button {
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      background: #eef3ff;
+      padding: 0.35rem 0.6rem;
+      font-size: 0.88rem;
+      cursor: pointer;
+    }
     .layout {
       display: grid;
       grid-template-columns: 250px minmax(0, 1fr);
@@ -277,16 +304,26 @@
     </aside>
 
     <main class="main-content">
-      <p class="toolbar">
-        Sort:
-        {% if sort == "unit_price_asc" %}
-          <strong>Lowest unit price</strong> |
-          <a href="?sort=name{{ selected_filters_query }}">Name</a>
-        {% else %}
-          <strong>Name</strong> |
-          <a href="?sort=unit_price_asc{{ selected_filters_query }}">Lowest unit price</a>
+      <form method="get" action="" class="sort-form">
+        <label for="sort-select">Sort:</label>
+        <select id="sort-select" name="sort" onchange="this.form.submit()">
+          {% for value, label in sort_options %}
+            <option value="{{ value }}" {% if sort == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        {% if selected_category_filter %}
+          <input type="hidden" name="category" value="{{ selected_category_filter }}">
         {% endif %}
-      </p>
+        {% for offer_filter in selected_offer_filters %}
+          <input type="hidden" name="offer_filter" value="{{ offer_filter }}">
+        {% endfor %}
+        {% for store_id in selected_store_ids %}
+          <input type="hidden" name="stores" value="{{ store_id }}">
+        {% endfor %}
+        <noscript>
+          <button type="submit">Apply sort</button>
+        </noscript>
+      </form>
 
       {% if products %}
         <section class="product-grid">
