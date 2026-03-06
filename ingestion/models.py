@@ -26,6 +26,18 @@ class StoreListing(models.Model):
         null=True,
         blank=True,
     )
+    hidden_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+    hidden_unit_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=4,
+        null=True,
+        blank=True,
+    )
     original_price = models.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -39,8 +51,13 @@ class StoreListing(models.Model):
         blank=True,
     )
     source_category = models.CharField(max_length=128, null=True, blank=True, db_index=True)
+    root_category = models.CharField(max_length=255, null=True, blank=True, db_index=True)
     unit_of_measure = models.CharField(max_length=64, null=True, blank=True)
+    discount_percent = models.PositiveIntegerField(null=True, blank=True)
     offer = models.CharField(max_length=255, null=True, blank=True)
+    one_plus_one = models.BooleanField(default=False)
+    two_plus_one = models.BooleanField(default=False)
+    promo_text = models.CharField(max_length=512, null=True, blank=True)
     snapshot_at = models.DateTimeField(default=timezone.now, db_index=True)
     last_seen_at = models.DateTimeField(default=timezone.now, db_index=True)
     is_active = models.BooleanField(default=True, db_index=True)
@@ -78,6 +95,14 @@ class StoreListing(models.Model):
             models.CheckConstraint(
                 condition=Q(final_unit_price__gte=0) | Q(final_unit_price__isnull=True),
                 name="ck_listing_final_unit_price_nonneg",
+            ),
+            models.CheckConstraint(
+                condition=Q(hidden_price__gte=0) | Q(hidden_price__isnull=True),
+                name="ck_listing_hidden_price_nonneg",
+            ),
+            models.CheckConstraint(
+                condition=Q(hidden_unit_price__gte=0) | Q(hidden_unit_price__isnull=True),
+                name="ck_listing_hidden_unit_price_nonneg",
             ),
             models.CheckConstraint(
                 condition=Q(original_price__gte=0) | Q(original_price__isnull=True),

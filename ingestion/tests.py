@@ -94,6 +94,12 @@ class ImportPipelineTests(TestCase):
                 "url": "https://example.com/a",
                 "final_price": "2.10",
                 "final_unit_price": "4.9412",
+                "hidden_price": "2.10",
+                "hidden_unit_price": "4.9412",
+                "discount_percent": "10",
+                "one_plus_one": "false",
+                "two_plus_one": "false",
+                "promo_text": "Weekend deal",
                 "offer": "true",
             },
             {
@@ -115,6 +121,12 @@ class ImportPipelineTests(TestCase):
                 "url": "https://example.com/a",
                 "final_price": "1.95",
                 "final_unit_price": "4.5882",
+                "hidden_price": "0.98",
+                "hidden_unit_price": "2.2941",
+                "discount_percent": "20",
+                "one_plus_one": "true",
+                "two_plus_one": "false",
+                "promo_text": "1+1 offer",
                 "offer": "true",
             },
             {
@@ -137,6 +149,14 @@ class ImportPipelineTests(TestCase):
         self.assertEqual(StoreListing.objects.count(), 2)
         updated_listing = StoreListing.objects.get(store_sku="sku-1")
         self.assertEqual(str(updated_listing.final_price), "1.95")
+        self.assertEqual(str(updated_listing.hidden_price), "0.98")
+        self.assertEqual(str(updated_listing.hidden_unit_price), "2.2941")
+        self.assertEqual(updated_listing.discount_percent, 20)
+        self.assertTrue(updated_listing.one_plus_one)
+        self.assertFalse(updated_listing.two_plus_one)
+        self.assertEqual(updated_listing.promo_text, "1+1 offer")
+        self.assertEqual(updated_listing.root_category, "freska-froyta-lachanika")
+        self.assertEqual(updated_listing.offer, "1+1")
 
         self.assertEqual(PriceHistory.objects.count(), 4)
         self.assertEqual(CrawlerRun.objects.count(), 2)

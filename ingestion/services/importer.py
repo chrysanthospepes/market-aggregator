@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -16,6 +17,9 @@ from ingestion.models import CrawlerRun, PriceHistory, StoreListing
 
 
 _NULLISH = {"", "null", "none", "nan", "n/a", "-"}
+_one_plus_one_re = re.compile(r"\b1\s*\+\s*1\b", re.IGNORECASE)
+_two_plus_one_re = re.compile(r"\b2\s*\+\s*1\b", re.IGNORECASE)
+_discount_re = re.compile(r"(-?\s*\d+)\s*%")
 
 
 @dataclass
@@ -79,6 +83,24 @@ def _parse_int(value: Any) -> Optional[int]:
         return None
 
 
+def _parse_discount_percent(*values: Any) -> Optional[int]:
+    for value in values:
+        parsed = _parse_int(value)
+        if parsed is not None:
+            return abs(parsed)
+
+        text = _clean_str(value)
+        if text is None:
+            continue
+        match = _discount_re.search(text)
+        if match:
+            try:
+                return abs(int(match.group(1).replace(" ", "")))
+            except ValueError:
+                continue
+    return None
+
+
 def _pick(row: dict[str, Any], *keys: str) -> Any:
     lower_map = {key.lower(): value for key, value in row.items()}
     for key in keys:
@@ -90,23 +112,27 @@ def _pick(row: dict[str, Any], *keys: str) -> Any:
     return None
 
 
-def _offer_text(row: dict[str, Any]) -> Optional[str]:
-    raw_offer = _pick(row, "offer")
-    if raw_offer is None:
-        raw_offer = _pick(row, "promo", "promotion")
-
-    bool_offer = _parse_bool(raw_offer)
-    one_plus_one = _parse_bool(_pick(row, "one_plus_one"))
-    discount_percent = _parse_int(_pick(row, "discount_percent"))
-
+def _offer_text(
+    *,
+    raw_offer: Any,
+    offer_flag: bool,
+    one_plus_one: bool,
+    two_plus_one: bool,
+    discount_percent: Optional[int],
+    promo_text: Optional[str],
+) -> Optional[str]:
     if one_plus_one:
         return "1+1"
-    if bool_offer and discount_percent is not None:
+    if two_plus_one:
+        return "2+1"
+    if discount_percent is not None:
         return f"-{abs(discount_percent)}%"
-    if bool_offer:
+    if promo_text:
+        return promo_text[:255]
+    if offer_flag:
         return "offer"
 
-    explicit_offer = _clean_str(raw_offer)
+    explicit_offer = _clean_str(raw_offer) or _clean_str(promo_text)
     if explicit_offer and explicit_offer.lower() not in {"true", "false"}:
         return explicit_offer[:255]
     return None
@@ -124,6 +150,34 @@ def _normalize_row(row: dict[str, Any], snapshot_at: datetime) -> Optional[dict[
         else:
             return None
 
+    raw_offer = _pick(row, "offer")
+    promo_text = _clean_str(_pick(row, "promo_text", "promo", "promotion"))
+    discount_percent = _parse_discount_percent(
+        _pick(row, "discount_percent"),
+        raw_offer,
+        promo_text,
+    )
+
+    one_plus_one = _parse_bool(_pick(row, "one_plus_one")) is True
+    two_plus_one = _parse_bool(_pick(row, "two_plus_one")) is True
+    promo_blob = " ".join(
+        part for part in (_clean_str(raw_offer), promo_text) if part
+    )
+    if promo_blob:
+        if not one_plus_one and _one_plus_one_re.search(promo_blob):
+            one_plus_one = True
+        if not two_plus_one and _two_plus_one_re.search(promo_blob):
+            two_plus_one = True
+
+    parsed_offer = _parse_bool(raw_offer)
+    offer_flag = parsed_offer if parsed_offer is not None else (
+        one_plus_one or two_plus_one or discount_percent is not None or promo_text is not None
+    )
+
+    root_category = _clean_str(
+        _pick(row, "root_category", "source_category", "category_slug", "category")
+    )
+
     return {
         "store_sku": sku,
         "store_name": store_name[:512],
@@ -132,13 +186,25 @@ def _normalize_row(row: dict[str, Any], snapshot_at: datetime) -> Optional[dict[
         "image_url": _clean_str(_pick(row, "image_url", "image")),
         "final_price": _parse_decimal(_pick(row, "final_price", "price")),
         "final_unit_price": _parse_decimal(_pick(row, "final_unit_price", "unit_price")),
+        "hidden_price": _parse_decimal(_pick(row, "hidden_price")),
+        "hidden_unit_price": _parse_decimal(_pick(row, "hidden_unit_price")),
         "original_price": _parse_decimal(_pick(row, "original_price")),
         "original_unit_price": _parse_decimal(_pick(row, "original_unit_price")),
-        "source_category": normalize_source_category(
-            _clean_str(_pick(row, "root_category", "source_category", "category_slug", "category"))
-        ),
+        "source_category": normalize_source_category(root_category),
+        "root_category": root_category[:255] if root_category else None,
         "unit_of_measure": _clean_str(_pick(row, "unit_of_measure", "uom")),
-        "offer": _offer_text(row),
+        "discount_percent": discount_percent,
+        "offer": _offer_text(
+            raw_offer=raw_offer,
+            offer_flag=offer_flag,
+            one_plus_one=one_plus_one,
+            two_plus_one=two_plus_one,
+            discount_percent=discount_percent,
+            promo_text=promo_text,
+        ),
+        "one_plus_one": one_plus_one,
+        "two_plus_one": two_plus_one,
+        "promo_text": promo_text[:512] if promo_text else None,
         "snapshot_at": snapshot_at,
         "last_seen_at": snapshot_at,
         "is_active": True,
