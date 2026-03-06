@@ -1147,6 +1147,28 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertContains(response, "<s>1.90€/τεμάχιο</s>", html=True)
         self.assertContains(response, "1 store")
 
+    def test_product_list_card_shows_store_and_sale_badges_on_image(self):
+        store = Store.objects.create(name="kritikos")
+        product = Product.objects.create(canonical_name="Badge product")
+        StoreListing.objects.create(
+            store=store,
+            store_sku="badge-product",
+            store_name="Badge product",
+            url="https://example.com/badge-product",
+            final_price=Decimal("1.50"),
+            final_unit_price=Decimal("1.50"),
+            discount_percent=20,
+            offer="-20%",
+            product=product,
+            is_active=True,
+        )
+
+        response = self.client.get(reverse("product-list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "/media/stores/kritikos.png")
+        self.assertContains(response, "/media/discounts/discount-020.svg")
+
 
 class MatchReviewAdminTests(TestCase):
     def test_approve_action_links_listing_and_rejects_other_pending(self):

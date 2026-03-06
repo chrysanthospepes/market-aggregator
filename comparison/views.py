@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from django.conf import settings
 from django.core.paginator import Paginator
 from django.db.models import Case, Count, IntegerField, Min, OuterRef, Q, Subquery, Value, When
 from django.http import JsonResponse
@@ -125,6 +126,7 @@ def product_list(request):
             cheapest_original_unit_price=Subquery(
                 cheapest_price_listing.values("original_unit_price")[:1]
             ),
+            cheapest_store_name=Subquery(cheapest_price_listing.values("store__name")[:1]),
             cheapest_unit_of_measure=Subquery(
                 cheapest_price_listing.values("unit_of_measure")[:1]
             ),
@@ -184,6 +186,29 @@ def product_list(request):
 
     paginator = Paginator(products, PRODUCTS_PER_PAGE)
     page_obj = paginator.get_page(request.GET.get("page"))
+    page_products = list(page_obj.object_list)
+    for product in page_products:
+        store_name = (getattr(product, "cheapest_store_name", "") or "").strip().lower()
+        product.store_icon_url = (
+            f"{settings.MEDIA_URL}stores/{store_name}.png" if store_name else None
+        )
+
+        product.sale_icon_url = None
+        if getattr(product, "cheapest_one_plus_one", False):
+            product.sale_icon_url = f"{settings.MEDIA_URL}discounts/offer-1plus1.svg"
+        elif getattr(product, "cheapest_two_plus_one", False):
+            product.sale_icon_url = f"{settings.MEDIA_URL}discounts/offer-2plus1.svg"
+        else:
+            discount_percent = getattr(product, "cheapest_discount_percent", None)
+            if discount_percent is not None:
+                try:
+                    pct = int(discount_percent)
+                except (TypeError, ValueError):
+                    pct = 0
+                if pct > 0:
+                    pct = min(pct, 100)
+                    product.sale_icon_url = f"{settings.MEDIA_URL}discounts/discount-{pct:03d}.svg"
+
     stores = (
         Store.objects.filter(listings__is_active=True)
         .annotate(
@@ -201,7 +226,7 @@ def product_list(request):
         request,
         "comparison/product_list.html",
         {
-            "products": page_obj.object_list,
+            "products": page_products,
             "page_obj": page_obj,
             "sort": sort,
             "stores": stores,
