@@ -5,14 +5,31 @@ from django.db.models import Case, Count, IntegerField, Min, OuterRef, Q, Subque
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
 
-from catalog.models import Product
+from catalog.models import Product, Store
 from ingestion.models import StoreListing
 
 PRODUCTS_PER_PAGE = 20
 
 
+def _parse_selected_store_ids(raw_values: list[str]) -> list[int]:
+    selected: list[int] = []
+    for raw in raw_values:
+        try:
+            store_id = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if store_id > 0:
+            selected.append(store_id)
+    return sorted(set(selected))
+
+
+def _selected_store_query(selected_store_ids: list[int]) -> str:
+    return "".join(f"&stores={store_id}" for store_id in selected_store_ids)
+
+
 def product_list(request):
     sort = request.GET.get("sort", "name")
+    selected_store_ids = _parse_selected_store_ids(request.GET.getlist("stores"))
     active_listings = StoreListing.objects.filter(
         product_id=OuterRef("pk"),
         is_active=True,
@@ -52,6 +69,12 @@ def product_list(request):
         .filter(active_listing_count__gt=0)
     )
 
+    if selected_store_ids:
+        products = products.filter(
+            store_listings__is_active=True,
+            store_listings__store_id__in=selected_store_ids,
+        ).distinct()
+
     if sort == "unit_price_asc":
         products = products.order_by(
             "no_unit_price_sort",
@@ -63,6 +86,18 @@ def product_list(request):
 
     paginator = Paginator(products, PRODUCTS_PER_PAGE)
     page_obj = paginator.get_page(request.GET.get("page"))
+    stores = (
+        Store.objects.filter(listings__is_active=True)
+        .annotate(
+            active_product_count=Count(
+                "listings__product_id",
+                filter=Q(listings__is_active=True, listings__product_id__isnull=False),
+                distinct=True,
+            ),
+        )
+        .order_by("name")
+        .distinct()
+    )
 
     return render(
         request,
@@ -71,6 +106,9 @@ def product_list(request):
             "products": page_obj.object_list,
             "page_obj": page_obj,
             "sort": sort,
+            "stores": stores,
+            "selected_store_ids": selected_store_ids,
+            "selected_store_query": _selected_store_query(selected_store_ids),
         },
     )
 

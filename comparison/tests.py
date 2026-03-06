@@ -886,6 +886,45 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertContains(response, "Product 021")
         self.assertNotContains(response, "Product 020")
 
+    def test_product_list_can_filter_by_selected_store(self):
+        store_a = Store.objects.create(name="ab")
+        store_b = Store.objects.create(name="bazaar")
+
+        self._create_product_with_listing(
+            store=store_a,
+            name="Only AB",
+            sku="ab-only",
+        )
+        self._create_product_with_listing(
+            store=store_b,
+            name="Only Bazaar",
+            sku="bazaar-only",
+        )
+        product_both = self._create_product_with_listing(
+            store=store_a,
+            name="AB and Bazaar",
+            sku="both-ab",
+        )
+        StoreListing.objects.create(
+            store=store_b,
+            store_sku="both-bazaar",
+            store_name="AB and Bazaar",
+            url="https://example.com/both-bazaar",
+            final_price=Decimal("1.10"),
+            product=product_both,
+            is_active=True,
+        )
+
+        response = self.client.get(reverse("product-list"), {"stores": [store_a.id]})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Only AB")
+        self.assertContains(response, "AB and Bazaar")
+        self.assertNotContains(response, "Only Bazaar")
+        self.assertEqual(set(response.context["selected_store_ids"]), {store_a.id})
+        self.assertContains(response, f'value="{store_a.id}"')
+        self.assertContains(response, f'?sort=unit_price_asc&amp;stores={store_a.id}')
+
     def test_product_list_card_shows_price_and_struck_original_values(self):
         store = Store.objects.create(name="sklavenitis")
         product = Product.objects.create(canonical_name="Card product")

@@ -15,6 +15,63 @@
     .toolbar {
       margin-bottom: 1rem;
     }
+    .layout {
+      display: grid;
+      grid-template-columns: 250px minmax(0, 1fr);
+      gap: 1.25rem;
+      align-items: start;
+    }
+    .sidebar {
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 0.9rem;
+      background: #fff;
+      position: sticky;
+      top: 1rem;
+    }
+    .sidebar h2 {
+      margin: 0 0 0.7rem;
+      font-size: 1rem;
+    }
+    .store-options {
+      max-height: 65vh;
+      overflow: auto;
+      margin-bottom: 0.8rem;
+    }
+    .store-option {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      margin-bottom: 0.45rem;
+      font-size: 0.92rem;
+    }
+    .store-count {
+      color: #666;
+      font-size: 0.84rem;
+    }
+    .filter-actions {
+      display: flex;
+      gap: 0.45rem;
+      flex-wrap: wrap;
+    }
+    .filter-actions button,
+    .filter-actions a {
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      background: #fff;
+      padding: 0.35rem 0.55rem;
+      font-size: 0.88rem;
+      line-height: 1.2;
+      text-decoration: none;
+      color: #0a58ca;
+      cursor: pointer;
+    }
+    .filter-actions button {
+      background: #eef3ff;
+    }
+    .main-content {
+      min-width: 0;
+    }
     .product-grid {
       display: grid;
       grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -26,6 +83,12 @@
       }
     }
     @media (max-width: 980px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+      .sidebar {
+        position: static;
+      }
       .product-grid {
         grid-template-columns: repeat(3, minmax(0, 1fr));
       }
@@ -128,85 +191,116 @@
 </head>
 <body>
   <h1>Available Products</h1>
-  <p class="toolbar">
-    Sort:
-    {% if sort == "unit_price_asc" %}
-      <strong>Lowest unit price</strong> |
-      <a href="?sort=name">Name</a>
-    {% else %}
-      <strong>Name</strong> |
-      <a href="?sort=unit_price_asc">Lowest unit price</a>
-    {% endif %}
-  </p>
+  <div class="layout">
+    <aside class="sidebar">
+      <h2>Filter by store</h2>
+      <form method="get" action="">
+        <input type="hidden" name="sort" value="{{ sort }}">
+        <div class="store-options">
+          {% for store in stores %}
+            <label class="store-option">
+              <input
+                type="checkbox"
+                name="stores"
+                value="{{ store.id }}"
+                {% if store.id in selected_store_ids %}checked{% endif %}
+              >
+              <span>
+                {{ store.name }}
+                <span class="store-count">({{ store.active_product_count }})</span>
+              </span>
+            </label>
+          {% endfor %}
+        </div>
+        <div class="filter-actions">
+          <button type="submit">Apply</button>
+          <a href="?sort={{ sort }}">Clear</a>
+        </div>
+      </form>
+    </aside>
 
-  {% if products %}
-    <section class="product-grid">
-      {% for product in products %}
-        <article class="product-card">
-          <a href="{% url 'product-detail' product.id %}">
-            <div class="image-wrap">
-              {% if product.image %}
-                <img src="{{ product.image.url }}" alt="{{ product.canonical_name }}">
+    <main class="main-content">
+      <p class="toolbar">
+        Sort:
+        {% if sort == "unit_price_asc" %}
+          <strong>Lowest unit price</strong> |
+          <a href="?sort=name{{ selected_store_query }}">Name</a>
+        {% else %}
+          <strong>Name</strong> |
+          <a href="?sort=unit_price_asc{{ selected_store_query }}">Lowest unit price</a>
+        {% endif %}
+      </p>
+
+      {% if products %}
+        <section class="product-grid">
+          {% for product in products %}
+            <article class="product-card">
+              <a href="{% url 'product-detail' product.id %}">
+                <div class="image-wrap">
+                  {% if product.image %}
+                    <img src="{{ product.image.url }}" alt="{{ product.canonical_name }}">
+                  {% else %}
+                    <span>No image</span>
+                  {% endif %}
+                </div>
+                <div class="content">
+                  <h2 class="product-name">{{ product.canonical_name }}</h2>
+
+                  <p class="price-line">
+                    {% if product.cheapest_final_price is not None %}
+                      {{ product.cheapest_final_price|floatformat:2 }}
+                    {% else %}
+                      -
+                    {% endif %}
+                    {% if product.cheapest_original_price is not None and product.cheapest_final_price is not None and product.cheapest_original_price > product.cheapest_final_price %}
+                      <span class="old-price"><s>{{ product.cheapest_original_price|floatformat:2 }}</s></span>
+                    {% endif %}
+                  </p>
+
+                  <p class="unit-price-line">
+                    {% if product.cheapest_final_unit_price is not None %}
+                      {{ product.cheapest_final_unit_price|floatformat:2 }}
+                    {% else %}
+                      -
+                    {% endif %}
+                    {% if product.cheapest_original_unit_price is not None and product.cheapest_final_unit_price is not None and product.cheapest_original_unit_price > product.cheapest_final_unit_price %}
+                      <span class="old-price"><s>{{ product.cheapest_original_unit_price|floatformat:2 }}</s></span>
+                    {% endif %}
+                  </p>
+
+                  <p class="stores-line">
+                    {{ product.active_listing_count }} store{{ product.active_listing_count|pluralize }}
+                  </p>
+                </div>
+              </a>
+            </article>
+          {% endfor %}
+        </section>
+        {% if page_obj.has_other_pages %}
+          <nav class="pagination" aria-label="Products pagination">
+            <span class="meta">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+
+            {% if page_obj.has_previous %}
+              <a href="?sort={{ sort }}{{ selected_store_query }}&page={{ page_obj.previous_page_number }}">Previous</a>
+            {% endif %}
+
+            {% for page_number in page_obj.paginator.page_range %}
+              {% if page_number == page_obj.number %}
+                <strong>{{ page_number }}</strong>
               {% else %}
-                <span>No image</span>
+                <a href="?sort={{ sort }}{{ selected_store_query }}&page={{ page_number }}">{{ page_number }}</a>
               {% endif %}
-            </div>
-            <div class="content">
-              <h2 class="product-name">{{ product.canonical_name }}</h2>
+            {% endfor %}
 
-              <p class="price-line">
-                {% if product.cheapest_final_price is not None %}
-                  {{ product.cheapest_final_price|floatformat:2 }}
-                {% else %}
-                  -
-                {% endif %}
-                {% if product.cheapest_original_price is not None and product.cheapest_final_price is not None and product.cheapest_original_price > product.cheapest_final_price %}
-                  <span class="old-price"><s>{{ product.cheapest_original_price|floatformat:2 }}</s></span>
-                {% endif %}
-              </p>
-
-              <p class="unit-price-line">
-                {% if product.cheapest_final_unit_price is not None %}
-                  {{ product.cheapest_final_unit_price|floatformat:4 }}
-                {% else %}
-                  -
-                {% endif %}
-                {% if product.cheapest_original_unit_price is not None and product.cheapest_final_unit_price is not None and product.cheapest_original_unit_price > product.cheapest_final_unit_price %}
-                  <span class="old-price"><s>{{ product.cheapest_original_unit_price|floatformat:4 }}</s></span>
-                {% endif %}
-              </p>
-
-              <p class="stores-line">
-                {{ product.active_listing_count }} store{{ product.active_listing_count|pluralize }}
-              </p>
-            </div>
-          </a>
-        </article>
-      {% endfor %}
-    </section>
-    {% if page_obj.has_other_pages %}
-      <nav class="pagination" aria-label="Products pagination">
-        <span class="meta">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
-
-        {% if page_obj.has_previous %}
-          <a href="?sort={{ sort }}&page={{ page_obj.previous_page_number }}">Previous</a>
+            {% if page_obj.has_next %}
+              <a href="?sort={{ sort }}{{ selected_store_query }}&page={{ page_obj.next_page_number }}">Next</a>
+            {% endif %}
+          </nav>
         {% endif %}
-
-        {% for page_number in page_obj.paginator.page_range %}
-          {% if page_number == page_obj.number %}
-            <strong>{{ page_number }}</strong>
-          {% else %}
-            <a href="?sort={{ sort }}&page={{ page_number }}">{{ page_number }}</a>
-          {% endif %}
-        {% endfor %}
-
-        {% if page_obj.has_next %}
-          <a href="?sort={{ sort }}&page={{ page_obj.next_page_number }}">Next</a>
-        {% endif %}
-      </nav>
-    {% endif %}
-  {% else %}
-    <p>No products available yet.</p>
-  {% endif %}
+      {% else %}
+        <p>No products available yet.</p>
+      {% endif %}
+    </main>
+  </div>
 </body>
 </html>
