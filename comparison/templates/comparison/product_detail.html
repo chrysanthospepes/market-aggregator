@@ -72,8 +72,14 @@
           <tr>
             <td>{{ listing.store.name }}</td>
             <td>{{ listing.store_name }}</td>
-            <td>{% if listing.final_price %}{{ listing.final_price }}{% else %}-{% endif %}</td>
-            <td>{% if listing.final_unit_price %}{{ listing.final_unit_price }}{% else %}-{% endif %}</td>
+            <td>{% if listing.final_price %}{{ listing.final_price|floatformat:2 }}€{% else %}-{% endif %}</td>
+            <td>
+              {% if listing.final_unit_price %}
+                {{ listing.final_unit_price|floatformat:2 }}€{% if listing.unit_of_measure == "kilos" %}/κιλό{% elif listing.unit_of_measure == "liters" %}/λίτρο{% else %}/τεμάχιο{% endif %}
+              {% else %}
+                -
+              {% endif %}
+            </td>
             <td>{% if listing.offer %}{{ listing.offer }}{% else %}-{% endif %}</td>
             <td>{{ listing.last_seen_at }}</td>
             <td>

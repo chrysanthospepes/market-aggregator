@@ -38,7 +38,19 @@
       overflow: auto;
       margin-bottom: 0.8rem;
     }
+    .offer-options {
+      margin-bottom: 0.8rem;
+      border-top: 1px solid #eee;
+      padding-top: 0.8rem;
+    }
     .store-option {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      margin-bottom: 0.45rem;
+      font-size: 0.92rem;
+    }
+    .offer-option {
       display: flex;
       align-items: center;
       gap: 0.45rem;
@@ -196,6 +208,9 @@
       <h2>Filter by store</h2>
       <form method="get" action="">
         <input type="hidden" name="sort" value="{{ sort }}">
+        {% if selected_category_filter %}
+          <input type="hidden" name="category" value="{{ selected_category_filter }}">
+        {% endif %}
         <div class="store-options">
           {% for store in stores %}
             <label class="store-option">
@@ -212,9 +227,23 @@
             </label>
           {% endfor %}
         </div>
+        <div class="offer-options">
+          <h2>Offer filter</h2>
+          {% for option in available_offer_filters %}
+            <label class="offer-option">
+              <input
+                type="checkbox"
+                name="offer_filter"
+                value="{{ option.value }}"
+                {% if option.value in selected_offer_filters %}checked{% endif %}
+              >
+              <span>{{ option.label }} <span class="store-count">({{ option.count }})</span></span>
+            </label>
+          {% endfor %}
+        </div>
         <div class="filter-actions">
           <button type="submit">Apply</button>
-          <a href="?sort={{ sort }}">Clear</a>
+          <a href="?sort={{ sort }}{% if selected_category_filter %}&category={{ selected_category_filter }}{% endif %}">Clear</a>
         </div>
       </form>
     </aside>
@@ -224,10 +253,10 @@
         Sort:
         {% if sort == "unit_price_asc" %}
           <strong>Lowest unit price</strong> |
-          <a href="?sort=name{{ selected_store_query }}">Name</a>
+          <a href="?sort=name{{ selected_filters_query }}">Name</a>
         {% else %}
           <strong>Name</strong> |
-          <a href="?sort=unit_price_asc{{ selected_store_query }}">Lowest unit price</a>
+          <a href="?sort=unit_price_asc{{ selected_filters_query }}">Lowest unit price</a>
         {% endif %}
       </p>
 
@@ -248,24 +277,26 @@
 
                   <p class="price-line">
                     {% if product.cheapest_final_price is not None %}
-                      {{ product.cheapest_final_price|floatformat:2 }}
+                      {{ product.cheapest_final_price|floatformat:2 }}€
                     {% else %}
                       -
                     {% endif %}
                     {% if product.cheapest_original_price is not None and product.cheapest_final_price is not None and product.cheapest_original_price > product.cheapest_final_price %}
-                      <span class="old-price"><s>{{ product.cheapest_original_price|floatformat:2 }}</s></span>
+                      <span class="old-price"><s>{{ product.cheapest_original_price|floatformat:2 }}€</s></span>
                     {% endif %}
                   </p>
 
                   <p class="unit-price-line">
-                    {% if product.cheapest_final_unit_price is not None %}
-                      {{ product.cheapest_final_unit_price|floatformat:2 }}
-                    {% else %}
-                      -
-                    {% endif %}
-                    {% if product.cheapest_original_unit_price is not None and product.cheapest_final_unit_price is not None and product.cheapest_original_unit_price > product.cheapest_final_unit_price %}
-                      <span class="old-price"><s>{{ product.cheapest_original_unit_price|floatformat:2 }}</s></span>
-                    {% endif %}
+                    {% with uom=product.cheapest_unit_of_measure %}
+                      {% if product.cheapest_final_unit_price is not None %}
+                        {{ product.cheapest_final_unit_price|floatformat:2 }}€{% if uom == "kilos" %}/κιλό{% elif uom == "liters" %}/λίτρο{% else %}/τεμάχιο{% endif %}
+                      {% else %}
+                        -
+                      {% endif %}
+                      {% if product.cheapest_original_unit_price is not None and product.cheapest_final_unit_price is not None and product.cheapest_original_unit_price > product.cheapest_final_unit_price %}
+                        <span class="old-price"><s>{{ product.cheapest_original_unit_price|floatformat:2 }}€{% if uom == "kilos" %}/κιλό{% elif uom == "liters" %}/λίτρο{% else %}/τεμάχιο{% endif %}</s></span>
+                      {% endif %}
+                    {% endwith %}
                   </p>
 
                   <p class="stores-line">
@@ -281,19 +312,19 @@
             <span class="meta">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
 
             {% if page_obj.has_previous %}
-              <a href="?sort={{ sort }}{{ selected_store_query }}&page={{ page_obj.previous_page_number }}">Previous</a>
+              <a href="?sort={{ sort }}{{ selected_filters_query }}&page={{ page_obj.previous_page_number }}">Previous</a>
             {% endif %}
 
             {% for page_number in page_obj.paginator.page_range %}
               {% if page_number == page_obj.number %}
                 <strong>{{ page_number }}</strong>
               {% else %}
-                <a href="?sort={{ sort }}{{ selected_store_query }}&page={{ page_number }}">{{ page_number }}</a>
+                <a href="?sort={{ sort }}{{ selected_filters_query }}&page={{ page_number }}">{{ page_number }}</a>
               {% endif %}
             {% endfor %}
 
             {% if page_obj.has_next %}
-              <a href="?sort={{ sort }}{{ selected_store_query }}&page={{ page_obj.next_page_number }}">Next</a>
+              <a href="?sort={{ sort }}{{ selected_filters_query }}&page={{ page_obj.next_page_number }}">Next</a>
             {% endif %}
           </nav>
         {% endif %}

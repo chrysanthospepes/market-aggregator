@@ -82,6 +82,12 @@ _page_param_re = re.compile(
 _euros_cents_re = re.compile(r"(\d+)\s+ευρ(?:ώ|ω)\s+και\s+(\d+)\s+λεπτ(?:ά|α)", re.IGNORECASE)
 _split_price_re = re.compile(r"(?:~?\s*€\s*)?(\d+)\s+(\d{1,2})(?:\s|$)")
 _category_code_re = re.compile(r"/c/([^/?#]+)", re.IGNORECASE)
+_weight_pack_re = re.compile(r"\b\d+(?:[.,]\d+)?\s*(?:kg|kgr|g|gr|γρ)\b", re.IGNORECASE)
+_volume_pack_re = re.compile(r"\b\d+(?:[.,]\d+)?\s*(?:l|lt|ml|cl|λιτρ(?:ο|α|ου))\b", re.IGNORECASE)
+_piece_pack_re = re.compile(
+    r"\b\d+(?:[.,]\d+)?\s*(?:τεμ(?:αχ(?:ιο)?)?|τμχ|tmx|pcs?|piece|ea|each)\b",
+    re.IGNORECASE,
+)
 _hidden_price_quantum = Decimal("0.01")
 _hidden_price_fields = ("hidden_price", "hidden_unit_price")
 
@@ -184,7 +190,7 @@ def detect_unit_of_measure(label: str) -> Optional[str]:
             " kg",
             "kilogram",
         )
-    ):
+    ) or _weight_pack_re.search(low):
         return "kilos"
     if any(
         token in low
@@ -200,7 +206,7 @@ def detect_unit_of_measure(label: str) -> Optional[str]:
             " liter",
             " litre",
         )
-    ):
+    ) or _volume_pack_re.search(low):
         return "liters"
     if any(
         token in low
@@ -219,7 +225,7 @@ def detect_unit_of_measure(label: str) -> Optional[str]:
             "/ea",
             " each",
         )
-    ):
+    ) or _piece_pack_re.search(low):
         return "piece"
     return None
 
@@ -594,6 +600,8 @@ def parse_listing_article(article, root_category: str) -> Optional[ListingProduc
     offer = one_plus_one or two_plus_one or discount_percent is not None or has_price_discount
     if discount_percent is not None or one_plus_one or two_plus_one:
         promo_text = None
+    if unit_of_measure is None and name:
+        unit_of_measure = detect_unit_of_measure(name)
     unit_of_measure = unit_of_measure or "piece"
 
     row = ListingProductRow(
@@ -621,6 +629,12 @@ def parse_listing_article(article, root_category: str) -> Optional[ListingProduc
 
 
 def detect_unit_of_measure_from_code(unit_code: Optional[str], label: str = "") -> Optional[str]:
+    # The AB API occasionally reports unitCode="piece" even when the rendered
+    # unit label clearly states per-kilo/per-liter. Prefer explicit label cues.
+    from_label = detect_unit_of_measure(label)
+    if from_label is not None:
+        return from_label
+
     code = normalize_text_no_accents(normalize_spaces(str(unit_code or "")))
     if code in {"kilogram", "kg", "kilo", "kgr"}:
         return "kilos"
@@ -628,7 +642,7 @@ def detect_unit_of_measure_from_code(unit_code: Optional[str], label: str = "") 
         return "liters"
     if code in {"piece", "pieces", "pc", "pcs", "ea", "each", "item", "τεμ", "τμχ", "tmx"}:
         return "piece"
-    return detect_unit_of_measure(label)
+    return None
 
 
 def parse_api_image_url(images: Any) -> Optional[str]:
@@ -777,6 +791,8 @@ def parse_api_listing_product(
         ]
     ).strip()
     unit_of_measure = detect_unit_of_measure_from_code(price.get("unitCode"), unit_label)
+    if unit_of_measure is None and name:
+        unit_of_measure = detect_unit_of_measure(name)
     unit_of_measure = unit_of_measure or "piece"
 
     (

@@ -4,11 +4,20 @@ from django.core.paginator import Paginator
 from django.db.models import Case, Count, IntegerField, Min, OuterRef, Q, Subquery, Value, When
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
+from django.utils.http import urlencode
 
 from catalog.models import Product, Store
 from ingestion.models import StoreListing
 
 PRODUCTS_PER_PAGE = 20
+OFFER_FILTER_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("no_offer", "No offer"),
+    ("discount_0_20", "Up to 20%"),
+    ("discount_21_40", "From 21% up to 40%"),
+    ("discount_41_plus", "From 41% up to max"),
+    ("one_plus_one", "1 + 1"),
+    ("two_plus_one", "2 + 1"),
+)
 
 
 def _parse_selected_store_ids(raw_values: list[str]) -> list[int]:
@@ -27,9 +36,60 @@ def _selected_store_query(selected_store_ids: list[int]) -> str:
     return "".join(f"&stores={store_id}" for store_id in selected_store_ids)
 
 
+def _parse_selected_offer_filters(raw_values: list[str]) -> list[str]:
+    valid_offer_filter_values = {value for value, _ in OFFER_FILTER_OPTIONS}
+    selected: list[str] = []
+    for raw in raw_values:
+        value = (raw or "").strip()
+        if value in valid_offer_filter_values:
+            selected.append(value)
+    return list(dict.fromkeys(selected))
+
+
+def _offer_filter_condition(offer_filter: str) -> Q:
+    if offer_filter == "no_offer":
+        return (
+            Q(cheapest_one_plus_one=False)
+            & Q(cheapest_two_plus_one=False)
+            & Q(cheapest_discount_percent__isnull=True)
+            & (Q(cheapest_offer_text__isnull=True) | Q(cheapest_offer_text=""))
+        )
+    if offer_filter == "discount_0_20":
+        return Q(cheapest_discount_percent__gte=1, cheapest_discount_percent__lte=20)
+    if offer_filter == "discount_21_40":
+        return Q(cheapest_discount_percent__gte=21, cheapest_discount_percent__lte=40)
+    if offer_filter == "discount_41_plus":
+        return Q(cheapest_discount_percent__gte=41)
+    if offer_filter == "one_plus_one":
+        return Q(cheapest_one_plus_one=True)
+    if offer_filter == "two_plus_one":
+        return Q(cheapest_two_plus_one=True)
+    return Q()
+
+
+def _selected_filters_query(
+    *,
+    store_ids: list[int],
+    offer_filters: list[str],
+    category_filter: str,
+) -> str:
+    params: list[tuple[str, str]] = []
+    if category_filter:
+        params.append(("category", category_filter))
+    for offer_filter in offer_filters:
+        params.append(("offer_filter", offer_filter))
+    for store_id in store_ids:
+        params.append(("stores", str(store_id)))
+    if not params:
+        return ""
+    return "&" + urlencode(params, doseq=True)
+
+
 def product_list(request):
     sort = request.GET.get("sort", "name")
+    selected_category_filter = (request.GET.get("category") or "").strip()
     selected_store_ids = _parse_selected_store_ids(request.GET.getlist("stores"))
+    selected_offer_filters = _parse_selected_offer_filters(request.GET.getlist("offer_filter"))
     active_listings = StoreListing.objects.filter(product_id=OuterRef("pk"), is_active=True)
     all_active_listing_filter = Q(store_listings__is_active=True)
     selected_listing_filter = all_active_listing_filter
@@ -65,6 +125,15 @@ def product_list(request):
             cheapest_original_unit_price=Subquery(
                 cheapest_price_listing.values("original_unit_price")[:1]
             ),
+            cheapest_unit_of_measure=Subquery(
+                cheapest_price_listing.values("unit_of_measure")[:1]
+            ),
+            cheapest_discount_percent=Subquery(
+                cheapest_price_listing.values("discount_percent")[:1]
+            ),
+            cheapest_one_plus_one=Subquery(cheapest_price_listing.values("one_plus_one")[:1]),
+            cheapest_two_plus_one=Subquery(cheapest_price_listing.values("two_plus_one")[:1]),
+            cheapest_offer_text=Subquery(cheapest_price_listing.values("offer")[:1]),
             no_unit_price_sort=Case(
                 When(lowest_final_unit_price__isnull=True, then=Value(1)),
                 default=Value(0),
@@ -73,6 +142,36 @@ def product_list(request):
         )
         .filter(selected_store_listing_count__gt=0)
     )
+
+    if selected_category_filter:
+        if selected_category_filter.isdigit():
+            products = products.filter(category_id=int(selected_category_filter))
+        else:
+            products = products.filter(category__slug=selected_category_filter)
+
+    offer_counts = products.aggregate(
+        no_offer=Count("id", filter=_offer_filter_condition("no_offer")),
+        discount_0_20=Count("id", filter=_offer_filter_condition("discount_0_20")),
+        discount_21_40=Count("id", filter=_offer_filter_condition("discount_21_40")),
+        discount_41_plus=Count("id", filter=_offer_filter_condition("discount_41_plus")),
+        one_plus_one=Count("id", filter=_offer_filter_condition("one_plus_one")),
+        two_plus_one=Count("id", filter=_offer_filter_condition("two_plus_one")),
+    )
+    available_offer_filters = [
+        {
+            "value": value,
+            "label": label,
+            "count": int(offer_counts.get(value) or 0),
+        }
+        for value, label in OFFER_FILTER_OPTIONS
+        if int(offer_counts.get(value) or 0) > 0 or value in selected_offer_filters
+    ]
+
+    if selected_offer_filters:
+        selected_offer_q = Q()
+        for offer_filter in selected_offer_filters:
+            selected_offer_q |= _offer_filter_condition(offer_filter)
+        products = products.filter(selected_offer_q)
 
     if sort == "unit_price_asc":
         products = products.order_by(
@@ -108,6 +207,14 @@ def product_list(request):
             "stores": stores,
             "selected_store_ids": selected_store_ids,
             "selected_store_query": _selected_store_query(selected_store_ids),
+            "selected_offer_filters": selected_offer_filters,
+            "available_offer_filters": available_offer_filters,
+            "selected_filters_query": _selected_filters_query(
+                store_ids=selected_store_ids,
+                offer_filters=selected_offer_filters,
+                category_filter=selected_category_filter,
+            ),
+            "selected_category_filter": selected_category_filter,
         },
     )
 
