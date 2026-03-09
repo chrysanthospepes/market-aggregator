@@ -766,7 +766,7 @@ class ComparisonHtmlViewsTests(TestCase):
         store_names = [section["store"].name for section in response.context["store_sections"]]
         self.assertEqual(store_names, ["ab", "bazaar"])
 
-    def test_home_category_filter_limits_results_to_single_category(self):
+    def test_home_category_links_open_filtered_product_list(self):
         store = Store.objects.create(name="sklavenitis")
         fruits = Category.objects.create(name="Fruits", slug="fruits")
         drinks = Category.objects.create(name="Drinks", slug="drinks")
@@ -792,8 +792,10 @@ class ComparisonHtmlViewsTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Orange Offer")
-        self.assertNotContains(response, "Cola Offer")
-        self.assertEqual(response.context["selected_category_filter"], fruits.slug)
+        self.assertContains(response, "Cola Offer")
+        self.assertContains(response, f'href="{reverse("product-list")}?category={fruits.slug}"')
+        self.assertContains(response, f'href="{reverse("product-list")}?category={drinks.slug}"')
+        self.assertNotIn("selected_category_filter", response.context)
 
     def test_home_limits_each_store_to_twenty_random_products(self):
         store = Store.objects.create(name="mymarket")
@@ -1210,6 +1212,61 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertContains(response, f'value="{store_a.id}"')
         self.assertEqual(response.context["sort"], "price_asc")
         self.assertIn(f"&stores={store_a.id}", response.context["selected_filters_query"])
+
+    def test_product_list_category_dropdown_shows_available_categories(self):
+        store = Store.objects.create(name="sklavenitis")
+        fruits = Category.objects.create(name="Fruits", slug="fruits")
+        drinks = Category.objects.create(name="Drinks", slug="drinks")
+        Category.objects.create(name="Bakery", slug="bakery")
+
+        self._create_product_with_listing(
+            store=store,
+            category=fruits,
+            name="Apple product",
+            sku="apple-product",
+        )
+        self._create_product_with_listing(
+            store=store,
+            category=drinks,
+            name="Cola product",
+            sku="cola-product",
+        )
+
+        response = self.client.get(reverse("product-list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="category-select"')
+        self.assertContains(response, "All categories")
+        self.assertContains(response, 'value="fruits"')
+        self.assertContains(response, 'value="drinks"')
+        self.assertNotContains(response, 'value="bakery"')
+
+    def test_product_list_can_filter_by_category_from_dropdown(self):
+        store = Store.objects.create(name="sklavenitis")
+        fruits = Category.objects.create(name="Fruits", slug="fruits")
+        drinks = Category.objects.create(name="Drinks", slug="drinks")
+
+        self._create_product_with_listing(
+            store=store,
+            category=fruits,
+            name="Apple product",
+            sku="apple-product-filter",
+        )
+        self._create_product_with_listing(
+            store=store,
+            category=drinks,
+            name="Cola product",
+            sku="cola-product-filter",
+        )
+
+        response = self.client.get(reverse("product-list"), {"category": fruits.slug})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Apple product")
+        self.assertNotContains(response, "Cola product")
+        self.assertContains(response, 'option value="fruits" selected')
+        self.assertEqual(response.context["selected_category_filter"], fruits.slug)
+        self.assertEqual(response.context["selected_category_slug"], fruits.slug)
 
     def test_selected_stores_drive_product_card_prices_only(self):
         sklavenitis = Store.objects.create(name="sklavenitis")

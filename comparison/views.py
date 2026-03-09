@@ -156,9 +156,6 @@ def _selected_filters_query(
 
 def home(request):
     categories = Category.objects.order_by("name")
-    selected_category_filter = (request.GET.get("category") or "").strip()
-    if selected_category_filter and not categories.filter(slug=selected_category_filter).exists():
-        selected_category_filter = ""
 
     stores = Store.objects.filter(listings__is_active=True).order_by("name").distinct()
     store_sections: list[dict[str, object]] = []
@@ -172,8 +169,6 @@ def home(request):
                 product__isnull=False,
             )
         )
-        if selected_category_filter:
-            listings = listings.filter(product__category__slug=selected_category_filter)
         offer_listings = list(listings.filter(_listing_offer_condition()).order_by("?")[:HOME_PRODUCTS_PER_STORE])
 
         remaining_slots = HOME_PRODUCTS_PER_STORE - len(offer_listings)
@@ -208,7 +203,6 @@ def home(request):
         "comparison/home.html",
         {
             "categories": categories,
-            "selected_category_filter": selected_category_filter,
             "store_sections": store_sections,
         },
     )
@@ -219,6 +213,23 @@ def product_list(request):
     selected_category_filter = (request.GET.get("category") or "").strip()
     selected_store_ids = _parse_selected_store_ids(request.GET.getlist("stores"))
     selected_offer_filters = _parse_selected_offer_filters(request.GET.getlist("offer_filter"))
+    category_listing_filter = Q(products__store_listings__is_active=True)
+    if selected_store_ids:
+        category_listing_filter &= Q(products__store_listings__store_id__in=selected_store_ids)
+    available_categories = (
+        Category.objects.filter(category_listing_filter)
+        .order_by("name")
+        .distinct()
+    )
+    selected_category_slug = selected_category_filter
+    if selected_category_filter.isdigit():
+        category_slug = (
+            Category.objects.filter(id=int(selected_category_filter))
+            .values_list("slug", flat=True)
+            .first()
+        )
+        if category_slug:
+            selected_category_slug = category_slug
     active_listings = StoreListing.objects.filter(product_id=OuterRef("pk"), is_active=True)
     all_active_listing_filter = Q(store_listings__is_active=True)
     selected_listing_filter = all_active_listing_filter
@@ -410,6 +421,8 @@ def product_list(request):
             "selected_store_query": _selected_store_query(selected_store_ids),
             "selected_offer_filters": selected_offer_filters,
             "available_offer_filters": available_offer_filters,
+            "available_categories": available_categories,
+            "selected_category_slug": selected_category_slug,
             "selected_filters_query": _selected_filters_query(
                 store_ids=selected_store_ids,
                 offer_filters=selected_offer_filters,

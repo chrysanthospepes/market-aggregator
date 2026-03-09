@@ -60,6 +60,20 @@
       margin: 0 0 0.7rem;
       font-size: 1rem;
     }
+    .category-picker {
+      margin-bottom: 0.8rem;
+      padding-bottom: 0.8rem;
+      border-bottom: 1px solid #eee;
+    }
+    .category-picker select {
+      width: 100%;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 0.35rem 0.55rem;
+      background: #fff;
+      font-size: 0.92rem;
+      color: #222;
+    }
     .store-options {
       max-height: 65vh;
       overflow: auto;
@@ -260,6 +274,29 @@
   <h1>Available Products</h1>
   <div class="layout">
     <aside class="sidebar">
+      <div class="category-picker">
+        <h2>Category</h2>
+        <form method="get" action="">
+          <input type="hidden" name="sort" value="{{ sort }}">
+          {% for offer_filter in selected_offer_filters %}
+            <input type="hidden" name="offer_filter" value="{{ offer_filter }}">
+          {% endfor %}
+          {% for store_id in selected_store_ids %}
+            <input type="hidden" name="stores" value="{{ store_id }}">
+          {% endfor %}
+          <select id="category-select" name="category" onchange="this.form.submit()">
+            <option value="">All categories</option>
+            {% for category in available_categories %}
+              <option value="{{ category.slug }}" {% if selected_category_slug == category.slug %}selected{% endif %}>
+                {{ category.name }}
+              </option>
+            {% endfor %}
+          </select>
+          <noscript>
+            <button type="submit">Go</button>
+          </noscript>
+        </form>
+      </div>
       <h2>Filter by store</h2>
       <form method="get" action="">
         <input type="hidden" name="sort" value="{{ sort }}">

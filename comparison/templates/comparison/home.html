@@ -260,7 +260,7 @@
     <header class="header">
       <div>
         <h1>Product Highlights by Store</h1>
-        <p>Pick one category and browse 20 random products per store, with offers prioritized.</p>
+        <p>Use categories to browse full product results. The rows below are a homepage showcase with offer preference.</p>
       </div>
       <a href="{% url 'product-list' %}">Open full products list</a>
     </header>
@@ -269,9 +269,9 @@
       <aside class="sidebar">
         <h2>Category</h2>
         <nav class="category-list" aria-label="Category filter">
-          <a href="{% url 'home' %}" class="category-link {% if not selected_category_filter %}active{% endif %}">All categories</a>
+          <a href="{% url 'product-list' %}" class="category-link">All categories</a>
           {% for category in categories %}
-            <a href="?category={{ category.slug }}" class="category-link {% if selected_category_filter == category.slug %}active{% endif %}">
+            <a href="{% url 'product-list' %}?category={{ category.slug }}" class="category-link">
               {{ category.name }}
             </a>
           {% endfor %}
