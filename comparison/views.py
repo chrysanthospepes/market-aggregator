@@ -171,11 +171,20 @@ def home(request):
                 is_active=True,
                 product__isnull=False,
             )
-            .filter(_listing_offer_condition())
         )
         if selected_category_filter:
             listings = listings.filter(product__category__slug=selected_category_filter)
-        picked_listings = list(listings.order_by("?")[:HOME_PRODUCTS_PER_STORE])
+        offer_listings = list(listings.filter(_listing_offer_condition()).order_by("?")[:HOME_PRODUCTS_PER_STORE])
+
+        remaining_slots = HOME_PRODUCTS_PER_STORE - len(offer_listings)
+        non_offer_listings: list[StoreListing] = []
+        if remaining_slots > 0:
+            selected_ids = [listing.id for listing in offer_listings]
+            non_offer_listings = list(
+                listings.exclude(id__in=selected_ids).order_by("?")[:remaining_slots]
+            )
+
+        picked_listings = offer_listings + non_offer_listings
         if not picked_listings:
             continue
 

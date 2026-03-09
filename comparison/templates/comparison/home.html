@@ -259,8 +259,8 @@
   <div class="page">
     <header class="header">
       <div>
-        <h1>Offer Highlights by Store</h1>
-        <p>Pick one category and browse 20 random offer products per store.</p>
+        <h1>Product Highlights by Store</h1>
+        <p>Pick one category and browse 20 random products per store, with offers prioritized.</p>
       </div>
       <a href="{% url 'product-list' %}">Open full products list</a>
     </header>
@@ -347,7 +347,7 @@
             </section>
           {% endfor %}
         {% else %}
-          <p class="empty-state">No offer products found for this category.</p>
+          <p class="empty-state">No products found for this category.</p>
         {% endif %}
       </main>
     </div>

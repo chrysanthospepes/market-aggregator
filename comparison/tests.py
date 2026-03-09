@@ -762,7 +762,7 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "AB Offer")
         self.assertContains(response, "Bazaar Offer")
-        self.assertNotContains(response, "AB No Offer")
+        self.assertContains(response, "AB No Offer")
         store_names = [section["store"].name for section in response.context["store_sections"]]
         self.assertEqual(store_names, ["ab", "bazaar"])
 
@@ -795,7 +795,7 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertNotContains(response, "Cola Offer")
         self.assertEqual(response.context["selected_category_filter"], fruits.slug)
 
-    def test_home_limits_each_store_to_twenty_random_offer_products(self):
+    def test_home_limits_each_store_to_twenty_random_products(self):
         store = Store.objects.create(name="mymarket")
 
         for i in range(1, 26):
@@ -821,6 +821,35 @@ class ComparisonHtmlViewsTests(TestCase):
                 or listing.two_plus_one
                 or bool(listing.offer)
             )
+
+    def test_home_prefers_offer_products_before_non_offer_fill(self):
+        store = Store.objects.create(name="kritikos")
+
+        for i in range(1, 4):
+            self._create_product_with_listing(
+                store=store,
+                name=f"Offer product {i}",
+                sku=f"offer-priority-{i}",
+                offer=True,
+                discount_percent=10 + i,
+            )
+        for i in range(1, 26):
+            self._create_product_with_listing(
+                store=store,
+                name=f"Regular product {i}",
+                sku=f"regular-priority-{i}",
+                offer=False,
+            )
+
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        sections = response.context["store_sections"]
+        self.assertEqual(len(sections), 1)
+        listings = sections[0]["listings"]
+        self.assertEqual(len(listings), 20)
+        self.assertTrue(all(listing.offer for listing in listings[:3]))
+        self.assertTrue(any(not listing.offer for listing in listings[3:]))
 
     def test_product_list_shows_products_with_active_listings_only(self):
         store = Store.objects.create(name="sklavenitis")
