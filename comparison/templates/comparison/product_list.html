@@ -15,6 +15,38 @@
     .toolbar {
       margin-bottom: 1rem;
     }
+    .search-form {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+    .search-form input[type="search"] {
+      flex: 1 1 280px;
+      min-width: 220px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 0.4rem 0.55rem;
+      background: #fff;
+      font-size: 0.94rem;
+      color: #222;
+    }
+    .search-form button,
+    .search-form a {
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      background: #eef3ff;
+      padding: 0.4rem 0.6rem;
+      font-size: 0.88rem;
+      line-height: 1.2;
+      color: #0a58ca;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .search-form a {
+      background: #fff;
+    }
     .sort-form {
       display: flex;
       align-items: center;
@@ -272,11 +304,35 @@
 </head>
 <body>
   <h1>Available Products</h1>
+  <form method="get" action="" class="search-form">
+    <input type="search" name="q" value="{{ search_query }}" placeholder="Search products or listing names">
+    {% if search_query %}
+      <input type="hidden" name="sort" value="{{ sort }}">
+    {% else %}
+      <input type="hidden" name="sort" value="relevance">
+    {% endif %}
+    {% if selected_category_filter %}
+      <input type="hidden" name="category" value="{{ selected_category_filter }}">
+    {% endif %}
+    {% for offer_filter in selected_offer_filters %}
+      <input type="hidden" name="offer_filter" value="{{ offer_filter }}">
+    {% endfor %}
+    {% for store_id in selected_store_ids %}
+      <input type="hidden" name="stores" value="{{ store_id }}">
+    {% endfor %}
+    <button type="submit">Search</button>
+    {% if search_query %}
+      <a href="?sort={{ sort }}{% if selected_category_filter %}&category={{ selected_category_filter }}{% endif %}{% for offer_filter in selected_offer_filters %}&offer_filter={{ offer_filter }}{% endfor %}{% for store_id in selected_store_ids %}&stores={{ store_id }}{% endfor %}">Clear search</a>
+    {% endif %}
+  </form>
   <div class="layout">
     <aside class="sidebar">
       <div class="category-picker">
         <h2>Category</h2>
         <form method="get" action="">
+          {% if search_query %}
+            <input type="hidden" name="q" value="{{ search_query }}">
+          {% endif %}
           <input type="hidden" name="sort" value="{{ sort }}">
           {% for offer_filter in selected_offer_filters %}
             <input type="hidden" name="offer_filter" value="{{ offer_filter }}">
@@ -299,6 +355,9 @@
       </div>
       <h2>Filter by store</h2>
       <form method="get" action="">
+        {% if search_query %}
+          <input type="hidden" name="q" value="{{ search_query }}">
+        {% endif %}
         <input type="hidden" name="sort" value="{{ sort }}">
         {% if selected_category_filter %}
           <input type="hidden" name="category" value="{{ selected_category_filter }}">
@@ -335,7 +394,7 @@
         </div>
         <div class="filter-actions">
           <button type="submit">Apply</button>
-          <a href="?sort={{ sort }}{% if selected_category_filter %}&category={{ selected_category_filter }}{% endif %}">Clear</a>
+          <a href="?sort={{ sort }}{% if search_query %}&q={{ search_query|urlencode }}{% endif %}{% if selected_category_filter %}&category={{ selected_category_filter }}{% endif %}">Clear</a>
         </div>
       </form>
     </aside>
@@ -343,6 +402,9 @@
     <main class="main-content">
       <form method="get" action="" class="sort-form">
         <label for="sort-select">Sort:</label>
+        {% if search_query %}
+          <input type="hidden" name="q" value="{{ search_query }}">
+        {% endif %}
         <select id="sort-select" name="sort" onchange="this.form.submit()">
           {% for value, label in sort_options %}
             <option value="{{ value }}" {% if sort == value %}selected{% endif %}>{{ label }}</option>

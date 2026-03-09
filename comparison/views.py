@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from django.conf import settings
 from django.core.paginator import Paginator
+from django.db import connection
 from django.db.models import (
     BooleanField,
     Case,
     Count,
     F,
+    FloatField,
     IntegerField,
+    Max,
     Min,
     OuterRef,
     Q,
@@ -15,18 +18,21 @@ from django.db.models import (
     Value,
     When,
 )
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Coalesce, Greatest
+from django.contrib.postgres.search import TrigramSimilarity
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils.http import urlencode
 
 from catalog.models import Category, Product, Store
+from catalog.search_normalizer import build_search_forms
 from ingestion.models import StoreListing
 
 HOME_PRODUCTS_PER_STORE = 20
 PRODUCTS_PER_PAGE = 20
 DEFAULT_SORT = "price_asc"
 SORT_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("relevance", "Relevance"),
     ("price_asc", "Increasing price"),
     ("price_desc", "Declining price"),
     ("unit_price_asc", "Increasing unit price"),
@@ -115,6 +121,12 @@ def _parse_sort(raw_value: str | None) -> str:
     return DEFAULT_SORT
 
 
+def _sort_options_for_query(has_search_query: bool) -> tuple[tuple[str, str], ...]:
+    if has_search_query:
+        return SORT_OPTIONS
+    return tuple(option for option in SORT_OPTIONS if option[0] != "relevance")
+
+
 def _offer_filter_condition(offer_filter: str) -> Q:
     if offer_filter == "no_offer":
         return (
@@ -141,8 +153,11 @@ def _selected_filters_query(
     store_ids: list[int],
     offer_filters: list[str],
     category_filter: str,
+    search_query: str,
 ) -> str:
     params: list[tuple[str, str]] = []
+    if search_query:
+        params.append(("q", search_query))
     if category_filter:
         params.append(("category", category_filter))
     for offer_filter in offer_filters:
@@ -209,7 +224,15 @@ def home(request):
 
 
 def product_list(request):
-    sort = _parse_sort(request.GET.get("sort"))
+    requested_sort = request.GET.get("sort")
+    sort = _parse_sort(requested_sort)
+    search_query = (request.GET.get("q") or "").strip()
+    search_query_forms = build_search_forms(search_query)
+    if search_query_forms and not (requested_sort or "").strip():
+        sort = "relevance"
+    elif not search_query_forms and sort == "relevance":
+        sort = DEFAULT_SORT
+    sort_options = _sort_options_for_query(bool(search_query_forms))
     selected_category_filter = (request.GET.get("category") or "").strip()
     selected_store_ids = _parse_selected_store_ids(request.GET.getlist("stores"))
     selected_offer_filters = _parse_selected_offer_filters(request.GET.getlist("offer_filter"))
@@ -349,40 +372,137 @@ def product_list(request):
             selected_offer_q |= _offer_filter_condition(offer_filter)
         products = products.filter(selected_offer_q)
 
-    if sort == "price_asc":
-        products = products.order_by(
+    if search_query_forms:
+
+        def _best_similarity(field_name: str):
+            similarity = TrigramSimilarity(field_name, search_query_forms[0])
+            for query_form in search_query_forms[1:]:
+                similarity = Greatest(
+                    similarity,
+                    TrigramSimilarity(field_name, query_form),
+                    output_field=FloatField(),
+                )
+            return similarity
+
+        def _token_form_query(field_name: str) -> Q:
+            combined = Q()
+            for query_form in search_query_forms:
+                tokens = [token for token in query_form.split() if token]
+                if not tokens:
+                    continue
+                form_query = Q()
+                for token in tokens:
+                    form_query &= Q(**{f"{field_name}__icontains": token})
+                combined |= form_query
+            return combined
+
+        if connection.vendor == "postgresql":
+            products = (
+                products.annotate(
+                    product_search_score=Greatest(
+                        _best_similarity("search_name"),
+                        _best_similarity("canonical_name"),
+                        output_field=FloatField(),
+                    ),
+                    listing_search_score=Max(
+                        Greatest(
+                            _best_similarity("store_listings__search_store_name"),
+                            _best_similarity("store_listings__store_name"),
+                            output_field=FloatField(),
+                        ),
+                        filter=selected_listing_filter,
+                    ),
+                )
+                .annotate(
+                    search_score=Greatest(
+                        Coalesce("product_search_score", Value(0.0)),
+                        Coalesce("listing_search_score", Value(0.0)),
+                        output_field=FloatField(),
+                    )
+                )
+                .filter(search_score__gte=0.08)
+            )
+        else:
+            product_search_q = _token_form_query("search_name") | _token_form_query("canonical_name")
+            listing_text_q = _token_form_query("store_listings__search_store_name") | _token_form_query(
+                "store_listings__store_name"
+            )
+            primary_form_tokens = [token for token in search_query_forms[0].split() if token]
+            primary_token = primary_form_tokens[0] if primary_form_tokens else search_query_forms[0]
+
+            listing_search_filter = Q(store_listings__is_active=True) & listing_text_q
+            if selected_store_ids:
+                listing_search_filter &= Q(store_listings__store_id__in=selected_store_ids)
+            products = (
+                products.filter(
+                    product_search_q | listing_search_filter
+                )
+                .annotate(
+                    product_search_score=Case(
+                        When(search_name__istartswith=primary_token, then=Value(120)),
+                        When(canonical_name__istartswith=primary_token, then=Value(110)),
+                        When(search_name__icontains=primary_token, then=Value(100)),
+                        When(canonical_name__icontains=primary_token, then=Value(90)),
+                        default=Value(0),
+                        output_field=IntegerField(),
+                    ),
+                    listing_search_score=Max(
+                        Case(
+                            When(listing_search_filter, then=Value(80)),
+                            default=Value(0),
+                            output_field=IntegerField(),
+                        )
+                    ),
+                )
+                .annotate(
+                    search_score=Greatest(
+                        Coalesce("product_search_score", Value(0)),
+                        Coalesce("listing_search_score", Value(0)),
+                        output_field=IntegerField(),
+                    )
+                )
+            )
+
+    if sort == "relevance":
+        if search_query_forms:
+            sort_ordering = ["-search_score", "canonical_name"]
+        else:
+            sort_ordering = ["canonical_name"]
+    elif sort == "price_asc":
+        sort_ordering = [
             "no_price_sort",
             "cheapest_sort_price",
             "canonical_name",
-        )
+        ]
     elif sort == "price_desc":
-        products = products.order_by(
+        sort_ordering = [
             "no_price_sort",
             "-cheapest_sort_price",
             "canonical_name",
-        )
+        ]
     elif sort == "unit_price_asc":
-        products = products.order_by(
+        sort_ordering = [
             "no_unit_price_sort",
             "lowest_sort_unit_price",
             "canonical_name",
-        )
+        ]
     elif sort == "unit_price_desc":
-        products = products.order_by(
+        sort_ordering = [
             "no_unit_price_sort",
             "-lowest_sort_unit_price",
             "canonical_name",
-        )
+        ]
     elif sort == "discount_desc":
-        products = products.order_by(
+        sort_ordering = [
             "discount_sort_group",
             "-discount_sort_value",
             "no_price_sort",
             "cheapest_sort_price",
             "canonical_name",
-        )
+        ]
     else:
-        products = products.order_by("canonical_name")
+        sort_ordering = ["canonical_name"]
+    products = products.order_by(*sort_ordering)
 
     paginator = Paginator(products, PRODUCTS_PER_PAGE)
     page_obj = paginator.get_page(request.GET.get("page"))
@@ -415,7 +535,7 @@ def product_list(request):
             "products": page_products,
             "page_obj": page_obj,
             "sort": sort,
-            "sort_options": SORT_OPTIONS,
+            "sort_options": sort_options,
             "stores": stores,
             "selected_store_ids": selected_store_ids,
             "selected_store_query": _selected_store_query(selected_store_ids),
@@ -423,10 +543,12 @@ def product_list(request):
             "available_offer_filters": available_offer_filters,
             "available_categories": available_categories,
             "selected_category_slug": selected_category_slug,
+            "search_query": search_query,
             "selected_filters_query": _selected_filters_query(
                 store_ids=selected_store_ids,
                 offer_filters=selected_offer_filters,
                 category_filter=selected_category_filter,
+                search_query=search_query,
             ),
             "selected_category_filter": selected_category_filter,
         },

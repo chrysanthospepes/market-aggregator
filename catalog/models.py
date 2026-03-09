@@ -1,6 +1,8 @@
 from django.db import models
 from django.db.models import Q
 
+from catalog.search_normalizer import build_search_text
+
 
 def _normalize_source_slug(value: str) -> str:
     normalized = (value or "").strip().lower()
@@ -77,6 +79,7 @@ class Product(models.Model):
         blank=True,
         db_index=True,
     )
+    search_name = models.TextField(blank=True, default="")
     image = models.FileField(upload_to="products/", null=True, blank=True)
     category = models.ForeignKey(
         Category,
@@ -117,6 +120,16 @@ class Product(models.Model):
                 name="uq_product_norm_key_present",
             ),
         ]
+
+    def save(self, *args, **kwargs):
+        self.search_name = build_search_text(self.canonical_name)
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            fields = set(update_fields)
+            if "canonical_name" in fields or "search_name" in fields:
+                fields.add("search_name")
+            kwargs["update_fields"] = tuple(fields)
+        super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return self.canonical_name

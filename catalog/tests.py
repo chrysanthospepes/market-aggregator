@@ -7,6 +7,7 @@ from django.core.files.base import ContentFile
 from django.test import TestCase
 
 from catalog.models import Product, Store
+from catalog.search_normalizer import build_search_forms, build_search_text, transliterate_greek_to_latin
 from catalog.services.product_images import ensure_product_image_from_listing
 from ingestion.models import StoreListing
 from matching.normalizer import (
@@ -128,3 +129,22 @@ class ProductImageTests(TestCase):
         self.assertFalse(changed)
         self.assertTrue(product.image.name.endswith("existing.jpg"))
         mock_get.assert_not_called()
+
+
+class SearchNormalizationTests(TestCase):
+    def test_transliteration_generates_greeklish_form_for_greek_text(self):
+        self.assertEqual(
+            transliterate_greek_to_latin("Φρεσκούλης Σαλάτα Ιταλική"),
+            "freskoulis salata italiki",
+        )
+
+    def test_build_search_forms_includes_base_latin_and_phonetic_variants(self):
+        forms = build_search_forms("Φρεσκούλης")
+        self.assertIn("φρεσκουλης", forms)
+        self.assertIn("freskoulis", forms)
+        self.assertIn("freskulis", forms)
+
+    def test_build_search_text_joins_unique_forms(self):
+        text = build_search_text("freskoulis")
+        self.assertIn("freskoulis", text)
+        self.assertIn("freskulis", text)

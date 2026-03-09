@@ -1241,6 +1241,122 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertContains(response, 'value="drinks"')
         self.assertNotContains(response, 'value="bakery"')
 
+    def test_product_list_shows_search_bar(self):
+        store = Store.objects.create(name="sklavenitis")
+        self._create_product_with_listing(
+            store=store,
+            name="Milk product",
+            sku="milk-product-search-bar",
+        )
+
+        response = self.client.get(reverse("product-list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="q"')
+        self.assertContains(response, "Search products or listing names")
+
+    def test_product_list_can_search_by_product_name_using_greeklish(self):
+        store = Store.objects.create(name="sklavenitis")
+
+        self._create_product_with_listing(
+            store=store,
+            name="Φρεσκούλης Σαλάτα Ιταλική 200g",
+            sku="greeklish-target",
+        )
+        self._create_product_with_listing(
+            store=store,
+            name="Άλλη Σαλάτα 200g",
+            sku="greeklish-other",
+        )
+
+        response = self.client.get(reverse("product-list"), {"q": "freskoulis italiki"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Φρεσκούλης Σαλάτα Ιταλική 200g")
+        self.assertNotContains(response, "Άλλη Σαλάτα 200g")
+
+    def test_product_list_can_search_by_store_listing_name_and_return_product(self):
+        store = Store.objects.create(name="sklavenitis")
+        target_product = Product.objects.create(canonical_name="Canonical cola product")
+        other_product = Product.objects.create(canonical_name="Canonical water product")
+
+        StoreListing.objects.create(
+            store=store,
+            store_sku="listing-name-target",
+            store_name="COCA COLA Zero 330ml",
+            url="https://example.com/listing-name-target",
+            final_price=Decimal("1.10"),
+            product=target_product,
+            is_active=True,
+        )
+        StoreListing.objects.create(
+            store=store,
+            store_sku="listing-name-other",
+            store_name="Mineral water 500ml",
+            url="https://example.com/listing-name-other",
+            final_price=Decimal("0.80"),
+            product=other_product,
+            is_active=True,
+        )
+
+        response = self.client.get(reverse("product-list"), {"q": "coca zero"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Canonical cola product")
+        self.assertNotContains(response, "Canonical water product")
+
+    def test_product_list_search_defaults_to_relevance_sort(self):
+        store = Store.objects.create(name="sklavenitis")
+        high_relevance = self._create_product_with_listing(
+            store=store,
+            name="Coca Zero Drink",
+            sku="rel-coca-zero",
+            final_price="4.50",
+        )
+        low_relevance = self._create_product_with_listing(
+            store=store,
+            name="Sparkling soda coca with zero sugar",
+            sku="rel-sparkling-coca-zero",
+            final_price="1.20",
+        )
+
+        response = self.client.get(reverse("product-list"), {"q": "coca zero"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["sort"], "relevance")
+        ordered_names = [product.canonical_name for product in response.context["products"]]
+        self.assertEqual(
+            ordered_names[:2],
+            [high_relevance.canonical_name, low_relevance.canonical_name],
+        )
+        self.assertContains(response, 'option value="relevance" selected')
+
+    def test_product_list_search_can_sort_by_price_instead_of_relevance(self):
+        store = Store.objects.create(name="sklavenitis")
+        expensive_but_relevant = self._create_product_with_listing(
+            store=store,
+            name="Coca Zero Drink",
+            sku="price-coca-zero",
+            final_price="4.50",
+        )
+        cheap_but_less_relevant = self._create_product_with_listing(
+            store=store,
+            name="Sparkling soda coca with zero sugar",
+            sku="price-sparkling-coca-zero",
+            final_price="1.20",
+        )
+
+        response = self.client.get(reverse("product-list"), {"q": "coca zero", "sort": "price_asc"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["sort"], "price_asc")
+        ordered_names = [product.canonical_name for product in response.context["products"]]
+        self.assertEqual(
+            ordered_names[:2],
+            [cheap_but_less_relevant.canonical_name, expensive_but_relevant.canonical_name],
+        )
+        self.assertContains(response, 'option value="relevance"')
+
     def test_product_list_can_filter_by_category_from_dropdown(self):
         store = Store.objects.create(name="sklavenitis")
         fruits = Category.objects.create(name="Fruits", slug="fruits")

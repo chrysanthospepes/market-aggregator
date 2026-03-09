@@ -2,6 +2,8 @@ from django.db import models
 from django.db.models import F, Q
 from django.utils import timezone
 
+from catalog.search_normalizer import build_search_text
+
 
 class StoreListing(models.Model):
     store = models.ForeignKey(
@@ -11,6 +13,7 @@ class StoreListing(models.Model):
     )
     store_sku = models.CharField(max_length=128, null=True, blank=True)
     store_name = models.CharField(max_length=512)
+    search_store_name = models.TextField(blank=True, default="")
     store_brand = models.CharField(max_length=255, null=True, blank=True)
     url = models.URLField(max_length=2000, null=True, blank=True)
     image_url = models.URLField(max_length=2000, null=True, blank=True)
@@ -131,6 +134,16 @@ class StoreListing(models.Model):
                 name="uq_listing_store_url_no_sku",
             ),
         ]
+
+    def save(self, *args, **kwargs):
+        self.search_store_name = build_search_text(self.store_name)
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            fields = set(update_fields)
+            if "store_name" in fields or "search_store_name" in fields:
+                fields.add("search_store_name")
+            kwargs["update_fields"] = tuple(fields)
+        super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return f"{self.store.name}: {self.store_name}"
