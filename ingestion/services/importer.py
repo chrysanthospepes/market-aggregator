@@ -112,32 +112,6 @@ def _pick(row: dict[str, Any], *keys: str) -> Any:
     return None
 
 
-def _offer_text(
-    *,
-    raw_offer: Any,
-    offer_flag: bool,
-    one_plus_one: bool,
-    two_plus_one: bool,
-    discount_percent: Optional[int],
-    promo_text: Optional[str],
-) -> Optional[str]:
-    if one_plus_one:
-        return "1+1"
-    if two_plus_one:
-        return "2+1"
-    if discount_percent is not None:
-        return f"-{abs(discount_percent)}%"
-    if promo_text:
-        return promo_text[:255]
-    if offer_flag:
-        return "offer"
-
-    explicit_offer = _clean_str(raw_offer) or _clean_str(promo_text)
-    if explicit_offer and explicit_offer.lower() not in {"true", "false"}:
-        return explicit_offer[:255]
-    return None
-
-
 def _normalize_row(row: dict[str, Any], snapshot_at: datetime) -> Optional[dict[str, Any]]:
     store_name = _clean_str(_pick(row, "name", "store_name", "title"))
     sku = _clean_str(_pick(row, "sku", "store_sku"))
@@ -170,8 +144,16 @@ def _normalize_row(row: dict[str, Any], snapshot_at: datetime) -> Optional[dict[
             two_plus_one = True
 
     parsed_offer = _parse_bool(raw_offer)
-    offer_flag = parsed_offer if parsed_offer is not None else (
-        one_plus_one or two_plus_one or discount_percent is not None or promo_text is not None
+    offer_flag = (
+        parsed_offer
+        if parsed_offer is not None
+        else bool(
+            one_plus_one
+            or two_plus_one
+            or discount_percent is not None
+            or promo_text is not None
+            or _clean_str(raw_offer)
+        )
     )
 
     root_category = _clean_str(
@@ -194,14 +176,7 @@ def _normalize_row(row: dict[str, Any], snapshot_at: datetime) -> Optional[dict[
         "root_category": root_category[:255] if root_category else None,
         "unit_of_measure": _clean_str(_pick(row, "unit_of_measure", "uom")),
         "discount_percent": discount_percent,
-        "offer": _offer_text(
-            raw_offer=raw_offer,
-            offer_flag=offer_flag,
-            one_plus_one=one_plus_one,
-            two_plus_one=two_plus_one,
-            discount_percent=discount_percent,
-            promo_text=promo_text,
-        ),
+        "offer": bool(offer_flag),
         "one_plus_one": one_plus_one,
         "two_plus_one": two_plus_one,
         "promo_text": promo_text[:512] if promo_text else None,

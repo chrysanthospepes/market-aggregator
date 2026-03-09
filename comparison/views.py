@@ -2,15 +2,28 @@ from __future__ import annotations
 
 from django.conf import settings
 from django.core.paginator import Paginator
-from django.db.models import Case, Count, F, IntegerField, Min, OuterRef, Q, Subquery, Value, When
+from django.db.models import (
+    BooleanField,
+    Case,
+    Count,
+    F,
+    IntegerField,
+    Min,
+    OuterRef,
+    Q,
+    Subquery,
+    Value,
+    When,
+)
 from django.db.models.functions import Coalesce
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils.http import urlencode
 
-from catalog.models import Product, Store
+from catalog.models import Category, Product, Store
 from ingestion.models import StoreListing
 
+HOME_PRODUCTS_PER_STORE = 20
 PRODUCTS_PER_PAGE = 20
 DEFAULT_SORT = "price_asc"
 SORT_OPTIONS: tuple[tuple[str, str], ...] = (
@@ -28,6 +41,44 @@ OFFER_FILTER_OPTIONS: tuple[tuple[str, str], ...] = (
     ("one_plus_one", "1 + 1"),
     ("two_plus_one", "2 + 1"),
 )
+
+
+def _listing_offer_condition() -> Q:
+    return (
+        Q(offer=True)
+        | Q(discount_percent__gt=0)
+        | Q(one_plus_one=True)
+        | Q(two_plus_one=True)
+    )
+
+
+def _store_icon_url(store_name: str | None) -> str | None:
+    normalized_name = (store_name or "").strip().lower()
+    if not normalized_name:
+        return None
+    return f"{settings.MEDIA_URL}stores/{normalized_name}.png"
+
+
+def _sale_icon_url(
+    *,
+    discount_percent: int | None,
+    one_plus_one: bool,
+    two_plus_one: bool,
+) -> str | None:
+    if one_plus_one:
+        return f"{settings.MEDIA_URL}discounts/offer-1plus1.svg"
+    if two_plus_one:
+        return f"{settings.MEDIA_URL}discounts/offer-2plus1.svg"
+    if discount_percent is None:
+        return None
+    try:
+        pct = int(discount_percent)
+    except (TypeError, ValueError):
+        return None
+    if pct <= 0:
+        return None
+    pct = min(pct, 100)
+    return f"{settings.MEDIA_URL}discounts/discount-{pct:03d}.svg"
 
 
 def _parse_selected_store_ids(raw_values: list[str]) -> list[int]:
@@ -70,7 +121,7 @@ def _offer_filter_condition(offer_filter: str) -> Q:
             Q(cheapest_one_plus_one=False)
             & Q(cheapest_two_plus_one=False)
             & Q(cheapest_discount_percent__isnull=True)
-            & (Q(cheapest_offer_text__isnull=True) | Q(cheapest_offer_text=""))
+            & Q(cheapest_offer=False)
         )
     if offer_filter == "discount_0_20":
         return Q(cheapest_discount_percent__gte=1, cheapest_discount_percent__lte=20)
@@ -101,6 +152,57 @@ def _selected_filters_query(
     if not params:
         return ""
     return "&" + urlencode(params, doseq=True)
+
+
+def home(request):
+    categories = Category.objects.order_by("name")
+    selected_category_filter = (request.GET.get("category") or "").strip()
+    if selected_category_filter and not categories.filter(slug=selected_category_filter).exists():
+        selected_category_filter = ""
+
+    stores = Store.objects.filter(listings__is_active=True).order_by("name").distinct()
+    store_sections: list[dict[str, object]] = []
+
+    for store in stores:
+        listings = (
+            StoreListing.objects.select_related("product")
+            .filter(
+                store=store,
+                is_active=True,
+                product__isnull=False,
+            )
+            .filter(_listing_offer_condition())
+        )
+        if selected_category_filter:
+            listings = listings.filter(product__category__slug=selected_category_filter)
+        picked_listings = list(listings.order_by("?")[:HOME_PRODUCTS_PER_STORE])
+        if not picked_listings:
+            continue
+
+        for listing in picked_listings:
+            listing.sale_icon_url = _sale_icon_url(
+                discount_percent=listing.discount_percent,
+                one_plus_one=listing.one_plus_one,
+                two_plus_one=listing.two_plus_one,
+            )
+
+        store_sections.append(
+            {
+                "store": store,
+                "store_icon_url": _store_icon_url(store.name),
+                "listings": picked_listings,
+            }
+        )
+
+    return render(
+        request,
+        "comparison/home.html",
+        {
+            "categories": categories,
+            "selected_category_filter": selected_category_filter,
+            "store_sections": store_sections,
+        },
+    )
 
 
 def product_list(request):
@@ -166,7 +268,11 @@ def product_list(request):
             ),
             cheapest_one_plus_one=Subquery(cheapest_price_listing.values("one_plus_one")[:1]),
             cheapest_two_plus_one=Subquery(cheapest_price_listing.values("two_plus_one")[:1]),
-            cheapest_offer_text=Subquery(cheapest_price_listing.values("offer")[:1]),
+            cheapest_offer=Coalesce(
+                Subquery(cheapest_price_listing.values("offer")[:1]),
+                Value(False),
+                output_field=BooleanField(),
+            ),
             no_unit_price_sort=Case(
                 When(lowest_sort_unit_price__isnull=True, then=Value(1)),
                 default=Value(0),
@@ -262,26 +368,12 @@ def product_list(request):
     page_obj = paginator.get_page(request.GET.get("page"))
     page_products = list(page_obj.object_list)
     for product in page_products:
-        store_name = (getattr(product, "cheapest_store_name", "") or "").strip().lower()
-        product.store_icon_url = (
-            f"{settings.MEDIA_URL}stores/{store_name}.png" if store_name else None
+        product.store_icon_url = _store_icon_url(getattr(product, "cheapest_store_name", None))
+        product.sale_icon_url = _sale_icon_url(
+            discount_percent=getattr(product, "cheapest_discount_percent", None),
+            one_plus_one=bool(getattr(product, "cheapest_one_plus_one", False)),
+            two_plus_one=bool(getattr(product, "cheapest_two_plus_one", False)),
         )
-
-        product.sale_icon_url = None
-        if getattr(product, "cheapest_one_plus_one", False):
-            product.sale_icon_url = f"{settings.MEDIA_URL}discounts/offer-1plus1.svg"
-        elif getattr(product, "cheapest_two_plus_one", False):
-            product.sale_icon_url = f"{settings.MEDIA_URL}discounts/offer-2plus1.svg"
-        else:
-            discount_percent = getattr(product, "cheapest_discount_percent", None)
-            if discount_percent is not None:
-                try:
-                    pct = int(discount_percent)
-                except (TypeError, ValueError):
-                    pct = 0
-                if pct > 0:
-                    pct = min(pct, 100)
-                    product.sale_icon_url = f"{settings.MEDIA_URL}discounts/discount-{pct:03d}.svg"
 
     stores = (
         Store.objects.filter(listings__is_active=True)

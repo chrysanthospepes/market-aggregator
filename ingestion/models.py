@@ -54,7 +54,7 @@ class StoreListing(models.Model):
     root_category = models.CharField(max_length=255, null=True, blank=True, db_index=True)
     unit_of_measure = models.CharField(max_length=64, null=True, blank=True)
     discount_percent = models.PositiveIntegerField(null=True, blank=True)
-    offer = models.CharField(max_length=255, null=True, blank=True)
+    offer = models.BooleanField(default=False)
     one_plus_one = models.BooleanField(default=False)
     two_plus_one = models.BooleanField(default=False)
     promo_text = models.CharField(max_length=512, null=True, blank=True)

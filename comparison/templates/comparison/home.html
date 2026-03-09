@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Store Offers</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 0;
+      background: #edf2f2;
+      color: #222;
+    }
+    .page {
+      max-width: 1480px;
+      margin: 0 auto;
+      padding: 1rem;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.9rem;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 1.45rem;
+    }
+    .header p {
+      margin: 0.25rem 0 0;
+      color: #445;
+      font-size: 0.93rem;
+    }
+    .header a {
+      border: 1px solid #ccd6dc;
+      border-radius: 8px;
+      background: #fff;
+      text-decoration: none;
+      color: #0a58ca;
+      padding: 0.42rem 0.65rem;
+      font-size: 0.9rem;
+      line-height: 1.15;
+      white-space: nowrap;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr);
+      gap: 1rem;
+      align-items: start;
+    }
+    .sidebar {
+      position: sticky;
+      top: 1rem;
+      border: 1px solid #ccd6dc;
+      border-radius: 10px;
+      background: #fff;
+      padding: 0.85rem;
+      max-height: calc(100vh - 2rem);
+      overflow: auto;
+    }
+    .sidebar h2 {
+      margin: 0 0 0.65rem;
+      font-size: 1rem;
+    }
+    .category-list {
+      display: grid;
+      gap: 0.35rem;
+    }
+    .category-link {
+      display: block;
+      border: 1px solid #d8dfe3;
+      border-radius: 7px;
+      text-decoration: none;
+      color: #1e1e1e;
+      font-size: 0.9rem;
+      line-height: 1.2;
+      padding: 0.42rem 0.55rem;
+      background: #fff;
+    }
+    .category-link:hover {
+      background: #f5f8ff;
+    }
+    .category-link.active {
+      background: #e8f0ff;
+      border-color: #aac7ff;
+      color: #08357b;
+      font-weight: 600;
+    }
+    .store-section {
+      margin-bottom: 1rem;
+    }
+    .store-section h2 {
+      margin: 0 0 0.45rem;
+      font-size: 2rem;
+      font-weight: 700;
+      color: #4e555a;
+      text-transform: capitalize;
+    }
+    .product-carousel {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 0.45rem;
+      align-items: stretch;
+    }
+    .carousel-btn {
+      border: 1px solid #ced8de;
+      border-radius: 8px;
+      background: #fff;
+      color: #4e555a;
+      width: 34px;
+      min-width: 34px;
+      cursor: pointer;
+      font-size: 1.18rem;
+      line-height: 1;
+      box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+    }
+    .carousel-btn:hover {
+      background: #f5f8ff;
+    }
+    .product-row {
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 0.55rem;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scroll-behavior: smooth;
+      scrollbar-width: thin;
+      padding-bottom: 0.2rem;
+    }
+    .product-card {
+      flex: 0 0 clamp(185px, 18vw, 220px);
+      border: 1px solid #ced8de;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #fff;
+      box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+    }
+    .product-card a {
+      text-decoration: none;
+      color: inherit;
+      display: block;
+      height: 100%;
+    }
+    .image-wrap {
+      position: relative;
+      width: 100%;
+      height: 132px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      background: #f6f6f6;
+    }
+    .product-image {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      padding: 0.35rem;
+      display: block;
+    }
+    .no-image {
+      color: #666;
+      font-size: 0.9rem;
+    }
+    .image-badge {
+      position: absolute;
+      z-index: 2;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.25));
+      pointer-events: none;
+    }
+    .sale-badge {
+      top: 8px;
+      left: 8px;
+      width: 34px;
+      height: 34px;
+      z-index: 4;
+    }
+    .store-badge {
+      left: 8px;
+      bottom: 8px;
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.92);
+      padding: 1px;
+      z-index: 3;
+    }
+    .content {
+      padding: 0.65rem;
+    }
+    .product-name {
+      margin: 0 0 0.4rem;
+      font-size: 0.94rem;
+      font-weight: 700;
+      line-height: 1.18;
+      min-height: 2.25rem;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .price-line {
+      margin: 0;
+      font-size: 1.04rem;
+      font-weight: 700;
+    }
+    .unit-price-line {
+      margin: 0.2rem 0 0;
+      font-size: 0.92rem;
+      color: #4e555a;
+    }
+    .old-price {
+      margin-left: 0.22rem;
+      font-size: 0.88rem;
+      color: #666;
+      font-weight: 500;
+    }
+    .empty-state {
+      border: 1px dashed #bcc8d1;
+      border-radius: 10px;
+      background: #fff;
+      padding: 1rem;
+      color: #404a52;
+    }
+    @media (max-width: 1340px) {
+      .product-card {
+        flex-basis: clamp(185px, 20vw, 215px);
+      }
+    }
+    @media (max-width: 1020px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+      .sidebar {
+        position: static;
+        max-height: none;
+      }
+      .carousel-btn {
+        display: none;
+      }
+      .product-card {
+        flex-basis: clamp(175px, 44vw, 220px);
+      }
+    }
+    @media (max-width: 520px) {
+      .product-card {
+        flex-basis: 76vw;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="header">
+      <div>
+        <h1>Offer Highlights by Store</h1>
+        <p>Pick one category and browse 20 random offer products per store.</p>
+      </div>
+      <a href="{% url 'product-list' %}">Open full products list</a>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <h2>Category</h2>
+        <nav class="category-list" aria-label="Category filter">
+          <a href="{% url 'home' %}" class="category-link {% if not selected_category_filter %}active{% endif %}">All categories</a>
+          {% for category in categories %}
+            <a href="?category={{ category.slug }}" class="category-link {% if selected_category_filter == category.slug %}active{% endif %}">
+              {{ category.name }}
+            </a>
+          {% endfor %}
+        </nav>
+      </aside>
+
+      <main>
+        {% if store_sections %}
+          {% for section in store_sections %}
+            <section class="store-section">
+              <h2>{{ section.store.name }}</h2>
+              <div class="product-carousel">
+                <button
+                  type="button"
+                  class="carousel-btn"
+                  data-row-id="store-row-{{ forloop.counter }}"
+                  data-direction="left"
+                  aria-label="Scroll {{ section.store.name }} products left"
+                >
+                  &#8249;
+                </button>
+                <div class="product-row" id="store-row-{{ forloop.counter }}">
+                {% for listing in section.listings %}
+                  <article class="product-card">
+                    <a href="{% url 'product-detail' listing.product_id %}">
+                      <div class="image-wrap">
+                        {% if listing.sale_icon_url %}
+                          <img src="{{ listing.sale_icon_url }}" alt="Offer badge" class="image-badge sale-badge">
+                        {% endif %}
+                        {% if section.store_icon_url %}
+                          <img src="{{ section.store_icon_url }}" alt="{{ section.store.name }} logo" class="image-badge store-badge">
+                        {% endif %}
+                        {% if listing.product.image %}
+                          <img src="{{ listing.product.image.url }}" alt="{{ listing.store_name }}" class="product-image">
+                        {% else %}
+                          <span class="no-image">No image available</span>
+                        {% endif %}
+                      </div>
+                      <div class="content">
+                        <h3 class="product-name">{{ listing.store_name }}</h3>
+                        <p class="price-line">
+                          {% if listing.final_price is not None %}
+                            {{ listing.final_price|floatformat:2 }}€
+                          {% else %}
+                            -
+                          {% endif %}
+                          {% if listing.original_price is not None and listing.final_price is not None and listing.original_price > listing.final_price %}
+                            <span class="old-price"><s>{{ listing.original_price|floatformat:2 }}€</s></span>
+                          {% endif %}
+                        </p>
+                        <p class="unit-price-line">
+                          {% if listing.final_unit_price is not None %}
+                            {{ listing.final_unit_price|floatformat:2 }}€{% if listing.unit_of_measure == "kilos" %}/κιλό{% elif listing.unit_of_measure == "liters" %}/λίτρο{% else %}/τεμάχιο{% endif %}
+                          {% else %}
+                            -
+                          {% endif %}
+                        </p>
+                      </div>
+                    </a>
+                  </article>
+                {% endfor %}
+                </div>
+                <button
+                  type="button"
+                  class="carousel-btn"
+                  data-row-id="store-row-{{ forloop.counter }}"
+                  data-direction="right"
+                  aria-label="Scroll {{ section.store.name }} products right"
+                >
+                  &#8250;
+                </button>
+              </div>
+            </section>
+          {% endfor %}
+        {% else %}
+          <p class="empty-state">No offer products found for this category.</p>
+        {% endif %}
+      </main>
+    </div>
+  </div>
+  <script>
+    (function () {
+      const step = 700;
+      const buttons = document.querySelectorAll(".carousel-btn[data-row-id]");
+      buttons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const rowId = button.getAttribute("data-row-id");
+          const direction = button.getAttribute("data-direction");
+          const row = rowId ? document.getElementById(rowId) : null;
+          if (!row) return;
+          const distance = direction === "left" ? -step : step;
+          row.scrollBy({ left: distance, behavior: "smooth" });
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

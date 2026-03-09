@@ -80,7 +80,21 @@
                 -
               {% endif %}
             </td>
-            <td>{% if listing.offer %}{{ listing.offer }}{% else %}-{% endif %}</td>
+            <td>
+              {% if listing.one_plus_one %}
+                1+1
+              {% elif listing.two_plus_one %}
+                2+1
+              {% elif listing.discount_percent %}
+                -{{ listing.discount_percent }}%
+              {% elif listing.promo_text %}
+                {{ listing.promo_text }}
+              {% elif listing.offer %}
+                Offer
+              {% else %}
+                -
+              {% endif %}
+            </td>
             <td>{{ listing.last_seen_at }}</td>
             <td>
               {% if listing.url %}

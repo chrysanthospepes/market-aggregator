@@ -702,6 +702,7 @@ class ComparisonApiTests(TestCase):
         self.assertEqual(payload["product"]["id"], product.id)
         self.assertEqual(len(payload["offers"]), 1)
         self.assertEqual(payload["offers"][0]["store"], "sklavenitis")
+        self.assertIs(payload["offers"][0]["offer"], False)
 
 
 class ComparisonHtmlViewsTests(TestCase):
@@ -713,8 +714,10 @@ class ComparisonHtmlViewsTests(TestCase):
         sku: str,
         final_price: str = "1.00",
         final_unit_price: str | None = None,
+        category: Category | None = None,
+        **listing_overrides,
     ) -> Product:
-        product = Product.objects.create(canonical_name=name)
+        product = Product.objects.create(canonical_name=name, category=category)
         listing_kwargs = {
             "store": store,
             "store_sku": sku,
@@ -726,8 +729,98 @@ class ComparisonHtmlViewsTests(TestCase):
         }
         if final_unit_price is not None:
             listing_kwargs["final_unit_price"] = Decimal(final_unit_price)
+        listing_kwargs.update(listing_overrides)
         StoreListing.objects.create(**listing_kwargs)
         return product
+
+    def test_home_groups_offer_products_by_store_in_alphabetical_order(self):
+        store_a = Store.objects.create(name="ab")
+        store_b = Store.objects.create(name="bazaar")
+
+        self._create_product_with_listing(
+            store=store_b,
+            name="Bazaar Offer",
+            sku="baz-offer",
+            offer=True,
+            discount_percent=20,
+        )
+        self._create_product_with_listing(
+            store=store_a,
+            name="AB Offer",
+            sku="ab-offer",
+            offer=True,
+            one_plus_one=True,
+        )
+        self._create_product_with_listing(
+            store=store_a,
+            name="AB No Offer",
+            sku="ab-no-offer",
+        )
+
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "AB Offer")
+        self.assertContains(response, "Bazaar Offer")
+        self.assertNotContains(response, "AB No Offer")
+        store_names = [section["store"].name for section in response.context["store_sections"]]
+        self.assertEqual(store_names, ["ab", "bazaar"])
+
+    def test_home_category_filter_limits_results_to_single_category(self):
+        store = Store.objects.create(name="sklavenitis")
+        fruits = Category.objects.create(name="Fruits", slug="fruits")
+        drinks = Category.objects.create(name="Drinks", slug="drinks")
+
+        self._create_product_with_listing(
+            store=store,
+            category=fruits,
+            name="Orange Offer",
+            sku="orange-offer",
+            offer=True,
+            discount_percent=30,
+        )
+        self._create_product_with_listing(
+            store=store,
+            category=drinks,
+            name="Cola Offer",
+            sku="cola-offer",
+            offer=True,
+            discount_percent=10,
+        )
+
+        response = self.client.get(reverse("home"), {"category": fruits.slug})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Orange Offer")
+        self.assertNotContains(response, "Cola Offer")
+        self.assertEqual(response.context["selected_category_filter"], fruits.slug)
+
+    def test_home_limits_each_store_to_twenty_random_offer_products(self):
+        store = Store.objects.create(name="mymarket")
+
+        for i in range(1, 26):
+            self._create_product_with_listing(
+                store=store,
+                name=f"Offer product {i:02d}",
+                sku=f"offer-{i:02d}",
+                offer=True,
+                discount_percent=i,
+            )
+
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        sections = response.context["store_sections"]
+        self.assertEqual(len(sections), 1)
+        listings = sections[0]["listings"]
+        self.assertEqual(len(listings), 20)
+        for listing in listings:
+            self.assertTrue(
+                (listing.discount_percent and listing.discount_percent > 0)
+                or listing.one_plus_one
+                or listing.two_plus_one
+                or bool(listing.offer)
+            )
 
     def test_product_list_shows_products_with_active_listings_only(self):
         store = Store.objects.create(name="sklavenitis")
@@ -773,7 +866,7 @@ class ComparisonHtmlViewsTests(TestCase):
             final_price=Decimal("0.90"),
             product=product,
             is_active=True,
-            offer="offer",
+            offer=True,
         )
         StoreListing.objects.create(
             store=store_b,
@@ -992,20 +1085,20 @@ class ComparisonHtmlViewsTests(TestCase):
                 **listing_kwargs,
             )
 
-        create_listing("Discount 20", "disc-20", offer="-20%", discount_percent=20)
-        create_listing("Discount 45", "disc-45", offer="-45%", discount_percent=45)
-        create_listing("One plus one", "offer-1p1", offer="1+1", one_plus_one=True)
-        create_listing("Two plus one", "offer-2p1", offer="2+1", two_plus_one=True)
-        create_listing("No offer", "offer-none", offer=None)
+        create_listing("Discount 20", "disc-20", offer=True, discount_percent=20)
+        create_listing("Discount 45", "disc-45", offer=True, discount_percent=45)
+        create_listing("One plus one", "offer-1p1", offer=True, one_plus_one=True)
+        create_listing("Two plus one", "offer-2p1", offer=True, two_plus_one=True)
+        create_listing("No offer", "offer-none", offer=False)
 
         response = self.client.get(reverse("product-list"), {"sort": "discount_desc"})
 
         self.assertEqual(response.status_code, 200)
-        content = response.content.decode("utf-8")
-        self.assertLess(content.index("Discount 45"), content.index("Discount 20"))
-        self.assertLess(content.index("Discount 20"), content.index("One plus one"))
-        self.assertLess(content.index("One plus one"), content.index("Two plus one"))
-        self.assertLess(content.index("Two plus one"), content.index("No offer"))
+        ordered_names = [product.canonical_name for product in response.context["products"]]
+        self.assertEqual(
+            ordered_names,
+            ["Discount 45", "Discount 20", "One plus one", "Two plus one", "No offer"],
+        )
 
     def test_product_list_paginates_to_twenty_items(self):
         store = Store.objects.create(name="sklavenitis")
@@ -1158,7 +1251,7 @@ class ComparisonHtmlViewsTests(TestCase):
             url="https://example.com/no-offer-a",
             final_price=Decimal("1.00"),
             final_unit_price=Decimal("1.00"),
-            offer=None,
+            offer=False,
             product=product_no_offer,
             is_active=True,
         )
@@ -1171,7 +1264,7 @@ class ComparisonHtmlViewsTests(TestCase):
             url="https://example.com/two-plus-one-b",
             final_price=Decimal("2.00"),
             final_unit_price=Decimal("2.00"),
-            offer="2+1",
+            offer=True,
             two_plus_one=True,
             product=product_two_plus_one,
             is_active=True,
@@ -1202,12 +1295,12 @@ class ComparisonHtmlViewsTests(TestCase):
             )
             return product
 
-        create_listing("No offer", "offer-none", offer=None)
-        create_listing("Discount 15", "offer-15", offer="-15%", discount_percent=15)
-        create_listing("Discount 30", "offer-30", offer="-30%", discount_percent=30)
-        create_listing("Discount 50", "offer-50", offer="-50%", discount_percent=50)
-        create_listing("One plus one", "offer-1p1", offer="1+1", one_plus_one=True)
-        create_listing("Two plus one", "offer-2p1", offer="2+1", two_plus_one=True)
+        create_listing("No offer", "offer-none", offer=False)
+        create_listing("Discount 15", "offer-15", offer=True, discount_percent=15)
+        create_listing("Discount 30", "offer-30", offer=True, discount_percent=30)
+        create_listing("Discount 50", "offer-50", offer=True, discount_percent=50)
+        create_listing("One plus one", "offer-1p1", offer=True, one_plus_one=True)
+        create_listing("Two plus one", "offer-2p1", offer=True, two_plus_one=True)
 
         response_21_40 = self.client.get(reverse("product-list"), {"offer_filter": "discount_21_40"})
         self.assertContains(response_21_40, "Discount 30")
@@ -1240,9 +1333,9 @@ class ComparisonHtmlViewsTests(TestCase):
                 **listing_kwargs,
             )
 
-        create_listing("Discount 30", "offer-30", offer="-30%", discount_percent=30)
-        create_listing("Two plus one", "offer-2p1", offer="2+1", two_plus_one=True)
-        create_listing("No offer", "offer-none", offer=None)
+        create_listing("Discount 30", "offer-30", offer=True, discount_percent=30)
+        create_listing("Two plus one", "offer-2p1", offer=True, two_plus_one=True)
+        create_listing("No offer", "offer-none", offer=False)
 
         response = self.client.get(
             reverse("product-list"),
@@ -1299,7 +1392,7 @@ class ComparisonHtmlViewsTests(TestCase):
             final_price=Decimal("1.50"),
             final_unit_price=Decimal("1.50"),
             discount_percent=20,
-            offer="-20%",
+            offer=True,
             product=product,
             is_active=True,
         )
