@@ -4,111 +4,102 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ product.canonical_name }}</title>
-  <style>
-    body {
-      font-family: sans-serif;
-      max-width: 960px;
-      margin: 2rem auto;
-      padding: 0 1rem;
-      line-height: 1.4;
-    }
-    .meta {
-      color: #555;
-      margin-bottom: 1rem;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-    th, td {
-      text-align: left;
-      padding: 0.6rem;
-      border-bottom: 1px solid #ddd;
-      vertical-align: top;
-    }
-    a {
-      color: #0a58ca;
-      text-decoration: none;
-    }
-    a:hover {
-      text-decoration: underline;
-    }
-  </style>
+  {% load static %}
+  <link rel="stylesheet" href="{% static 'comparison/css/common.css' %}">
+  <link rel="stylesheet" href="{% static 'comparison/css/product_detail.css' %}">
 </head>
 <body>
-  <p><a href="{% url 'product-list' %}">Back to products</a></p>
-  <h1>{{ product.canonical_name }}</h1>
+  <div class="detail-page">
+    <nav class="top-nav" aria-label="Primary">
+      <a href="{% url 'home' %}" class="home-link">Home</a>
+      <form method="get" action="{% url 'product-list' %}" class="nav-search-form">
+        <input type="search" name="q" placeholder="Search products or listing names">
+        <button type="submit">Search</button>
+      </form>
+    </nav>
 
-  {% if product.image %}
-    <p>
-      <img src="{{ product.image.url }}" alt="{{ product.canonical_name }}" style="max-width:220px;width:100%;height:auto;border-radius:8px;">
+    <p class="backline">
+      <a href="{% url 'product-list' %}" class="back-link">Back to products</a>
     </p>
-  {% endif %}
 
-  <p class="meta">
-    Category:
-    {% if product.category %}
-      {{ product.category.name }} ({{ product.category.slug }})
+    <section class="detail-header">
+      <div class="title-wrap">
+        <h1>{{ product.canonical_name }}</h1>
+        <p class="meta">
+          Category:
+          {% if product.category %}
+            {{ product.category.name }} ({{ product.category.slug }})
+          {% else %}
+            -
+          {% endif %}
+        </p>
+      </div>
+
+      {% if product.image %}
+        <div class="hero-wrap">
+          <img src="{{ product.image.url }}" alt="{{ product.canonical_name }}" class="hero-image">
+        </div>
+      {% endif %}
+    </section>
+
+    {% if listings %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Store</th>
+              <th>Listing Name</th>
+              <th>Final Price</th>
+              <th>Unit Price</th>
+              <th>Offer</th>
+              <th>Last Seen</th>
+              <th>Link</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for listing in listings %}
+              <tr>
+                <td>{{ listing.store.name }}</td>
+                <td>{{ listing.store_name }}</td>
+                <td>{% if listing.final_price %}{{ listing.final_price|floatformat:2 }}€{% else %}-{% endif %}</td>
+                <td>
+                  {% if listing.final_unit_price %}
+                    {{ listing.final_unit_price|floatformat:2 }}€{% if listing.unit_of_measure == "kilos" %}/κιλό{% elif listing.unit_of_measure == "liters" %}/λίτρο{% else %}/τεμάχιο{% endif %}
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
+                <td>
+                  {% if listing.one_plus_one %}
+                    1+1
+                  {% elif listing.two_plus_one %}
+                    2+1
+                  {% elif listing.discount_percent %}
+                    -{{ listing.discount_percent }}%
+                  {% elif listing.promo_text %}
+                    {{ listing.promo_text }}
+                  {% elif listing.offer %}
+                    Offer
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
+                <td>{{ listing.last_seen_at }}</td>
+                <td>
+                  {% if listing.url %}
+                    <a href="{{ listing.url }}" target="_blank" rel="noopener noreferrer">Open</a>
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     {% else %}
-      -
+      <p class="empty-state">No active listings linked to this product.</p>
     {% endif %}
-  </p>
-
-  {% if listings %}
-    <table>
-      <thead>
-        <tr>
-          <th>Store</th>
-          <th>Listing Name</th>
-          <th>Final Price</th>
-          <th>Unit Price</th>
-          <th>Offer</th>
-          <th>Last Seen</th>
-          <th>Link</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for listing in listings %}
-          <tr>
-            <td>{{ listing.store.name }}</td>
-            <td>{{ listing.store_name }}</td>
-            <td>{% if listing.final_price %}{{ listing.final_price|floatformat:2 }}€{% else %}-{% endif %}</td>
-            <td>
-              {% if listing.final_unit_price %}
-                {{ listing.final_unit_price|floatformat:2 }}€{% if listing.unit_of_measure == "kilos" %}/κιλό{% elif listing.unit_of_measure == "liters" %}/λίτρο{% else %}/τεμάχιο{% endif %}
-              {% else %}
-                -
-              {% endif %}
-            </td>
-            <td>
-              {% if listing.one_plus_one %}
-                1+1
-              {% elif listing.two_plus_one %}
-                2+1
-              {% elif listing.discount_percent %}
-                -{{ listing.discount_percent }}%
-              {% elif listing.promo_text %}
-                {{ listing.promo_text }}
-              {% elif listing.offer %}
-                Offer
-              {% else %}
-                -
-              {% endif %}
-            </td>
-            <td>{{ listing.last_seen_at }}</td>
-            <td>
-              {% if listing.url %}
-                <a href="{{ listing.url }}" target="_blank" rel="noopener noreferrer">Open</a>
-              {% else %}
-                -
-              {% endif %}
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% else %}
-    <p>No active listings linked to this product.</p>
-  {% endif %}
+  </div>
 </body>
 </html>

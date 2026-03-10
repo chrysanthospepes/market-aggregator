@@ -4,339 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Products</title>
-  <style>
-    body {
-      font-family: sans-serif;
-      max-width: 1480px;
-      margin: 2rem auto;
-      padding: 0 1rem;
-      line-height: 1.4;
-    }
-    .top-nav {
-      display: grid;
-      grid-template-columns: 1fr minmax(280px, 700px) 1fr;
-      align-items: center;
-      gap: 0.75rem;
-      margin-bottom: 1rem;
-    }
-    .home-link {
-      justify-self: start;
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      background: #fff;
-      padding: 0.45rem 0.7rem;
-      font-size: 0.9rem;
-      color: #0a58ca;
-      text-decoration: none;
-      line-height: 1.2;
-    }
-    .home-link:hover {
-      background: #f3f7ff;
-    }
-    .toolbar {
-      margin-bottom: 1rem;
-    }
-    .search-form {
-      display: flex;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-      align-items: center;
-      margin: 0;
-      width: 100%;
-      justify-content: center;
-    }
-    .nav-search-form {
-      grid-column: 2;
-    }
-    .search-form input[type="search"] {
-      flex: 1 1 280px;
-      min-width: 220px;
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      padding: 0.4rem 0.55rem;
-      background: #fff;
-      font-size: 0.94rem;
-      color: #222;
-    }
-    .search-form button,
-    .search-form a {
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      background: #eef3ff;
-      padding: 0.4rem 0.6rem;
-      font-size: 0.88rem;
-      line-height: 1.2;
-      color: #0a58ca;
-      text-decoration: none;
-      cursor: pointer;
-    }
-    .search-form a {
-      background: #fff;
-    }
-    .sort-form {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-      margin-bottom: 1rem;
-    }
-    .sort-form label {
-      font-size: 0.95rem;
-      color: #333;
-    }
-    .sort-form select {
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      padding: 0.35rem 0.55rem;
-      background: #fff;
-      font-size: 0.92rem;
-      color: #222;
-    }
-    .sort-form button {
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      background: #eef3ff;
-      padding: 0.35rem 0.6rem;
-      font-size: 0.88rem;
-      cursor: pointer;
-    }
-    .layout {
-      display: grid;
-      grid-template-columns: 250px minmax(0, 1fr);
-      gap: 1.25rem;
-      align-items: start;
-    }
-    .sidebar {
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      padding: 0.9rem;
-      background: #fff;
-      position: sticky;
-      top: 1rem;
-    }
-    .sidebar h2 {
-      margin: 0 0 0.7rem;
-      font-size: 1rem;
-    }
-    .category-picker {
-      margin-bottom: 0.8rem;
-      padding-bottom: 0.8rem;
-      border-bottom: 1px solid #eee;
-    }
-    .category-picker select {
-      width: 100%;
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      padding: 0.35rem 0.55rem;
-      background: #fff;
-      font-size: 0.92rem;
-      color: #222;
-    }
-    .store-options {
-      max-height: 65vh;
-      overflow: auto;
-      margin-bottom: 0.8rem;
-    }
-    .offer-options {
-      margin-bottom: 0.8rem;
-      border-top: 1px solid #eee;
-      padding-top: 0.8rem;
-    }
-    .store-option {
-      display: flex;
-      align-items: center;
-      gap: 0.45rem;
-      margin-bottom: 0.45rem;
-      font-size: 0.92rem;
-    }
-    .offer-option {
-      display: flex;
-      align-items: center;
-      gap: 0.45rem;
-      margin-bottom: 0.45rem;
-      font-size: 0.92rem;
-    }
-    .store-count {
-      color: #666;
-      font-size: 0.84rem;
-    }
-    .filter-actions {
-      display: flex;
-      gap: 0.45rem;
-      flex-wrap: wrap;
-    }
-    .filter-actions button,
-    .filter-actions a {
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      background: #fff;
-      padding: 0.35rem 0.55rem;
-      font-size: 0.88rem;
-      line-height: 1.2;
-      text-decoration: none;
-      color: #0a58ca;
-      cursor: pointer;
-    }
-    .filter-actions button {
-      background: #eef3ff;
-    }
-    .main-content {
-      min-width: 0;
-    }
-    .product-grid {
-      display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 1rem;
-    }
-    @media (max-width: 1280px) {
-      .product-grid {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-      }
-    }
-    @media (max-width: 980px) {
-      .top-nav {
-        grid-template-columns: 1fr;
-        gap: 0.6rem;
-      }
-      .home-link {
-        grid-column: 1;
-      }
-      .nav-search-form {
-        grid-column: 1;
-      }
-      .layout {
-        grid-template-columns: 1fr;
-      }
-      .sidebar {
-        position: static;
-      }
-      .product-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-      }
-    }
-    @media (max-width: 760px) {
-      .product-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-    }
-    @media (max-width: 520px) {
-      .product-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-    .product-card {
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      overflow: hidden;
-      background: #fff;
-    }
-    .product-card a {
-      color: inherit;
-      text-decoration: none;
-      display: block;
-      height: 100%;
-    }
-    .image-wrap {
-      position: relative;
-      width: 100%;
-      min-height: 220px;
-      max-height: 260px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: #f3f3f3;
-      overflow: hidden;
-    }
-    .product-image {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      display: block;
-    }
-    .image-badge {
-      position: absolute;
-      z-index: 2;
-      width: auto;
-      height: auto;
-      object-fit: contain;
-      filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.25));
-      pointer-events: none;
-    }
-    .sale-badge {
-      top: 8px;
-      left: 8px;
-      width: 36px;
-      height: 36px;
-      z-index: 4;
-    }
-    .store-badge {
-      left: 8px;
-      bottom: 8px;
-      width: 30px;
-      height: 30px;
-      border-radius: 6px;
-      background: rgba(255, 255, 255, 0.92);
-      padding: 1px;
-      z-index: 3;
-    }
-    .content {
-      padding: 0.75rem;
-    }
-    .product-name {
-      margin: 0 0 0.4rem;
-      font-size: 1rem;
-      line-height: 1.25;
-    }
-    .price-line {
-      margin: 0;
-      font-size: 1rem;
-      font-weight: 600;
-    }
-    .unit-price-line {
-      margin: 0.3rem 0 0;
-      font-size: 0.9rem;
-      color: #555;
-    }
-    .stores-line {
-      margin: 0.45rem 0 0;
-      font-size: 0.9rem;
-      color: #333;
-    }
-    .old-price {
-      margin-left: 0.35rem;
-      font-size: 0.8rem;
-      color: #777;
-    }
-    .pagination {
-      margin-top: 1.2rem;
-      display: flex;
-      gap: 0.5rem;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-    .pagination .meta {
-      color: #555;
-      margin-right: 0.5rem;
-    }
-    .pagination a {
-      display: inline-block;
-      padding: 0.35rem 0.55rem;
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      color: #0a58ca;
-      text-decoration: none;
-    }
-    .pagination a:hover {
-      background: #f3f7ff;
-    }
-    .pagination strong {
-      display: inline-block;
-      padding: 0.35rem 0.55rem;
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      background: #eef3ff;
-    }
-  </style>
+  {% load static %}
+  <link rel="stylesheet" href="{% static 'comparison/css/common.css' %}">
+  <link rel="stylesheet" href="{% static 'comparison/css/product_list.css' %}">
 </head>
 <body>
   <nav class="top-nav" aria-label="Primary">
@@ -439,16 +109,21 @@
     </aside>
 
     <main class="main-content">
-      <form method="get" action="" class="sort-form">
-        <label for="sort-select">Sort:</label>
+      <form method="get" action="" class="results-controls">
+        <div class="results-sort">
+          <label for="sort-select">Sort:</label>
+          <select id="sort-select" name="sort" onchange="this.form.submit()">
+            {% for value, label in sort_options %}
+              <option value="{{ value }}" {% if sort == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          <noscript>
+            <button type="submit">Apply sort</button>
+          </noscript>
+        </div>
         {% if search_query %}
           <input type="hidden" name="q" value="{{ search_query }}">
         {% endif %}
-        <select id="sort-select" name="sort" onchange="this.form.submit()">
-          {% for value, label in sort_options %}
-            <option value="{{ value }}" {% if sort == value %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
         {% if selected_category_filter %}
           <input type="hidden" name="category" value="{{ selected_category_filter }}">
         {% endif %}
@@ -458,9 +133,66 @@
         {% for store_id in selected_store_ids %}
           <input type="hidden" name="stores" value="{{ store_id }}">
         {% endfor %}
-        <noscript>
-          <button type="submit">Apply sort</button>
-        </noscript>
+
+        {% if page_obj.has_other_pages %}
+          <nav class="pagination pagination-inline" aria-label="Products pagination">
+            <span class="pagination-status">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+
+            <div class="pagination-shell">
+              {% if page_obj.has_previous %}
+                <a
+                  class="page-arrow"
+                  href="?sort={{ sort }}{{ selected_filters_query }}&page={{ page_obj.previous_page_number }}"
+                  aria-label="Previous page"
+                >
+                  &#8249;
+                </a>
+              {% else %}
+                <span class="page-arrow disabled" aria-hidden="true">&#8249;</span>
+              {% endif %}
+
+              <div class="pagination-pages">
+                {% for page_token in pagination_pages %}
+                  {% if page_token %}
+                    {% if page_token == page_obj.number %}
+                      <span class="page-pill current" aria-current="page">{{ page_token }}</span>
+                    {% else %}
+                      <a class="page-pill" href="?sort={{ sort }}{{ selected_filters_query }}&page={{ page_token }}">{{ page_token }}</a>
+                    {% endif %}
+                  {% else %}
+                    <span class="page-ellipsis" aria-hidden="true">&hellip;</span>
+                  {% endif %}
+                {% endfor %}
+              </div>
+
+              {% if page_obj.has_next %}
+                <a
+                  class="page-arrow"
+                  href="?sort={{ sort }}{{ selected_filters_query }}&page={{ page_obj.next_page_number }}"
+                  aria-label="Next page"
+                >
+                  &#8250;
+                </a>
+              {% else %}
+                <span class="page-arrow disabled" aria-hidden="true">&#8250;</span>
+              {% endif %}
+            </div>
+
+            <div class="pagination-go">
+              <span class="go-label">Go to</span>
+              <input
+                id="page-jump"
+                type="number"
+                name="page"
+                min="1"
+                max="{{ page_obj.paginator.num_pages }}"
+                inputmode="numeric"
+                onchange="this.form.submit()"
+              >
+              <span class="go-label">Page</span>
+            </div>
+          </nav>
+        {% endif %}
       </form>
 
       {% if products %}
@@ -525,24 +257,75 @@
           {% endfor %}
         </section>
         {% if page_obj.has_other_pages %}
-          <nav class="pagination" aria-label="Products pagination">
-            <span class="meta">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+          <nav class="pagination pagination-bottom" aria-label="Products pagination bottom">
+            <span class="pagination-status">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
 
-            {% if page_obj.has_previous %}
-              <a href="?sort={{ sort }}{{ selected_filters_query }}&page={{ page_obj.previous_page_number }}">Previous</a>
-            {% endif %}
-
-            {% for page_number in page_obj.paginator.page_range %}
-              {% if page_number == page_obj.number %}
-                <strong>{{ page_number }}</strong>
+            <div class="pagination-shell">
+              {% if page_obj.has_previous %}
+                <a
+                  class="page-arrow"
+                  href="?sort={{ sort }}{{ selected_filters_query }}&page={{ page_obj.previous_page_number }}"
+                  aria-label="Previous page"
+                >
+                  &#8249;
+                </a>
               {% else %}
-                <a href="?sort={{ sort }}{{ selected_filters_query }}&page={{ page_number }}">{{ page_number }}</a>
+                <span class="page-arrow disabled" aria-hidden="true">&#8249;</span>
               {% endif %}
-            {% endfor %}
 
-            {% if page_obj.has_next %}
-              <a href="?sort={{ sort }}{{ selected_filters_query }}&page={{ page_obj.next_page_number }}">Next</a>
-            {% endif %}
+              <div class="pagination-pages">
+                {% for page_token in pagination_pages %}
+                  {% if page_token %}
+                    {% if page_token == page_obj.number %}
+                      <span class="page-pill current" aria-current="page">{{ page_token }}</span>
+                    {% else %}
+                      <a class="page-pill" href="?sort={{ sort }}{{ selected_filters_query }}&page={{ page_token }}">{{ page_token }}</a>
+                    {% endif %}
+                  {% else %}
+                    <span class="page-ellipsis" aria-hidden="true">&hellip;</span>
+                  {% endif %}
+                {% endfor %}
+              </div>
+
+              {% if page_obj.has_next %}
+                <a
+                  class="page-arrow"
+                  href="?sort={{ sort }}{{ selected_filters_query }}&page={{ page_obj.next_page_number }}"
+                  aria-label="Next page"
+                >
+                  &#8250;
+                </a>
+              {% else %}
+                <span class="page-arrow disabled" aria-hidden="true">&#8250;</span>
+              {% endif %}
+            </div>
+
+            <form method="get" action="" class="pagination-go" aria-label="Go to page">
+              {% if search_query %}
+                <input type="hidden" name="q" value="{{ search_query }}">
+              {% endif %}
+              <input type="hidden" name="sort" value="{{ sort }}">
+              {% if selected_category_filter %}
+                <input type="hidden" name="category" value="{{ selected_category_filter }}">
+              {% endif %}
+              {% for offer_filter in selected_offer_filters %}
+                <input type="hidden" name="offer_filter" value="{{ offer_filter }}">
+              {% endfor %}
+              {% for store_id in selected_store_ids %}
+                <input type="hidden" name="stores" value="{{ store_id }}">
+              {% endfor %}
+              <span class="go-label">Go to</span>
+              <input
+                id="page-jump-bottom"
+                type="number"
+                name="page"
+                min="1"
+                max="{{ page_obj.paginator.num_pages }}"
+                inputmode="numeric"
+                onchange="this.form.submit()"
+              >
+              <span class="go-label">Page</span>
+            </form>
           </nav>
         {% endif %}
       {% else %}

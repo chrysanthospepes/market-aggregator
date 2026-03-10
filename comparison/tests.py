@@ -1200,6 +1200,24 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertContains(response, "Product 021")
         self.assertNotContains(response, "Product 020")
 
+    def test_product_list_pagination_uses_ellipsis_when_many_pages_exist(self):
+        store = Store.objects.create(name="sklavenitis")
+        for i in range(1, 182):
+            self._create_product_with_listing(
+                store=store,
+                name=f"Paged product {i:03d}",
+                sku=f"paged-sku-{i:03d}",
+            )
+
+        response = self.client.get(reverse("product-list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Page 1 of 10")
+        self.assertContains(response, 'class="page-ellipsis"')
+        self.assertContains(response, 'page=5">5</a>')
+        self.assertContains(response, 'page=10">10</a>')
+        self.assertNotContains(response, 'page=6">6</a>')
+
     def test_product_list_can_filter_by_selected_store(self):
         store_a = Store.objects.create(name="ab")
         store_b = Store.objects.create(name="bazaar")

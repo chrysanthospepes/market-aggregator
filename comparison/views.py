@@ -182,6 +182,28 @@ def _selected_filters_query(
     return "&" + urlencode(params, doseq=True)
 
 
+def _pagination_page_tokens(*, current_page: int, total_pages: int) -> list[int | None]:
+    if total_pages <= 0:
+        return []
+
+    pages: set[int] = {1, total_pages}
+    if current_page <= 5:
+        pages.update(range(1, min(total_pages, 5) + 1))
+    elif current_page >= total_pages - 4:
+        pages.update(range(max(1, total_pages - 4), total_pages + 1))
+
+    pages.update(range(max(1, current_page - 2), min(total_pages, current_page + 2) + 1))
+
+    tokens: list[int | None] = []
+    previous_page: int | None = None
+    for page_number in sorted(page for page in pages if 1 <= page <= total_pages):
+        if previous_page is not None and page_number - previous_page > 1:
+            tokens.append(None)
+        tokens.append(page_number)
+        previous_page = page_number
+    return tokens
+
+
 def home(request):
     categories = Category.objects.order_by("name")
 
@@ -521,6 +543,10 @@ def product_list(request):
 
     paginator = Paginator(products, PRODUCTS_PER_PAGE)
     page_obj = paginator.get_page(request.GET.get("page"))
+    pagination_pages = _pagination_page_tokens(
+        current_page=page_obj.number,
+        total_pages=page_obj.paginator.num_pages,
+    )
     page_products = list(page_obj.object_list)
     for product in page_products:
         product.store_icon_url = _store_icon_url(getattr(product, "cheapest_store_name", None))
@@ -559,6 +585,7 @@ def product_list(request):
             "available_categories": available_categories,
             "selected_category_slug": selected_category_slug,
             "search_query": search_query,
+            "pagination_pages": pagination_pages,
             "selected_filters_query": _selected_filters_query(
                 store_ids=selected_store_ids,
                 offer_filters=selected_offer_filters,
