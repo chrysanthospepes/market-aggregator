@@ -233,7 +233,8 @@ def product_list(request):
     elif not search_query_forms and sort == "relevance":
         sort = DEFAULT_SORT
     sort_options = _sort_options_for_query(bool(search_query_forms))
-    selected_category_filter = (request.GET.get("category") or "").strip()
+    requested_category_filter = (request.GET.get("category") or "").strip()
+    selected_category_filter = "" if search_query_forms else requested_category_filter
     selected_store_ids = _parse_selected_store_ids(request.GET.getlist("stores"))
     selected_offer_filters = _parse_selected_offer_filters(request.GET.getlist("offer_filter"))
     category_listing_filter = Q(products__store_listings__is_active=True)

@@ -1357,6 +1357,36 @@ class ComparisonHtmlViewsTests(TestCase):
         )
         self.assertContains(response, 'option value="relevance"')
 
+    def test_product_list_search_ignores_category_filter_and_searches_all_categories(self):
+        store = Store.objects.create(name="sklavenitis")
+        fruits = Category.objects.create(name="Fruits", slug="fruits")
+        drinks = Category.objects.create(name="Drinks", slug="drinks")
+
+        self._create_product_with_listing(
+            store=store,
+            category=fruits,
+            name="Orange product",
+            sku="orange-category-search",
+        )
+        self._create_product_with_listing(
+            store=store,
+            category=drinks,
+            name="Cola product",
+            sku="cola-category-search",
+        )
+
+        response = self.client.get(
+            reverse("product-list"),
+            {"q": "cola", "category": fruits.slug},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Cola product")
+        self.assertNotContains(response, "Orange product")
+        self.assertEqual(response.context["selected_category_filter"], "")
+        self.assertEqual(response.context["selected_category_slug"], "")
+        self.assertNotIn("category=", response.context["selected_filters_query"])
+
     def test_product_list_can_filter_by_category_from_dropdown(self):
         store = Store.objects.create(name="sklavenitis")
         fruits = Category.objects.create(name="Fruits", slug="fruits")
