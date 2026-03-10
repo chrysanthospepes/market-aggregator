@@ -18,14 +18,6 @@
       </form>
     </nav>
 
-    <header class="header">
-      <div>
-        <h1>Product Highlights by Store</h1>
-        <p>Use categories to browse full product results. The rows below are a homepage showcase with offer preference.</p>
-      </div>
-      <a href="{% url 'product-list' %}">Open full products list</a>
-    </header>
-
     <div class="layout">
       <aside class="sidebar">
         <h2>Category</h2>
@@ -116,7 +108,24 @@
   <script>
     (function () {
       const step = 700;
+      const edgeTolerance = 2;
       const buttons = document.querySelectorAll(".carousel-btn[data-row-id]");
+      const rows = document.querySelectorAll(".product-row");
+
+      const wrapOrScroll = (row, delta, behavior) => {
+        const max = Math.max(0, row.scrollWidth - row.clientWidth);
+        if (max === 0) return;
+        if (delta > 0 && row.scrollLeft >= max - edgeTolerance) {
+          row.scrollTo({ left: 0, behavior });
+          return;
+        }
+        if (delta < 0 && row.scrollLeft <= edgeTolerance) {
+          row.scrollTo({ left: max, behavior });
+          return;
+        }
+        row.scrollBy({ left: delta, behavior });
+      };
+
       buttons.forEach((button) => {
         button.addEventListener("click", () => {
           const rowId = button.getAttribute("data-row-id");
@@ -124,8 +133,21 @@
           const row = rowId ? document.getElementById(rowId) : null;
           if (!row) return;
           const distance = direction === "left" ? -step : step;
-          row.scrollBy({ left: distance, behavior: "smooth" });
+          wrapOrScroll(row, distance, "smooth");
         });
+      });
+
+      rows.forEach((row) => {
+        row.addEventListener(
+          "wheel",
+          (event) => {
+            if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+            if (event.deltaY === 0) return;
+            wrapOrScroll(row, event.deltaY, "auto");
+            event.preventDefault();
+          },
+          { passive: false },
+        );
       });
     })();
   </script>
