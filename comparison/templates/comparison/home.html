@@ -16,6 +16,62 @@
       margin: 0 auto;
       padding: 1rem;
     }
+    .top-nav {
+      display: grid;
+      grid-template-columns: 1fr minmax(280px, 700px) 1fr;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.9rem;
+    }
+    .home-link {
+      justify-self: start;
+      border: 1px solid #ccd6dc;
+      border-radius: 8px;
+      background: #fff;
+      text-decoration: none;
+      color: #0a58ca;
+      padding: 0.42rem 0.65rem;
+      font-size: 0.9rem;
+      line-height: 1.15;
+      white-space: nowrap;
+    }
+    .home-link:hover {
+      background: #f5f8ff;
+    }
+    .nav-search-form {
+      grid-column: 2;
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      margin: 0;
+    }
+    .nav-search-form input[type="search"] {
+      flex: 1 1 280px;
+      min-width: 220px;
+      border: 1px solid #ccd6dc;
+      border-radius: 8px;
+      padding: 0.42rem 0.58rem;
+      background: #fff;
+      font-size: 0.94rem;
+      color: #222;
+    }
+    .nav-search-form button {
+      border: 1px solid #ccd6dc;
+      border-radius: 8px;
+      background: #fff;
+      color: #0a58ca;
+      padding: 0.42rem 0.65rem;
+      font-size: 0.9rem;
+      line-height: 1.15;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .nav-search-form button:hover {
+      background: #f5f8ff;
+    }
     .header {
       display: flex;
       align-items: center;
@@ -234,6 +290,16 @@
       }
     }
     @media (max-width: 1020px) {
+      .top-nav {
+        grid-template-columns: 1fr;
+        gap: 0.6rem;
+      }
+      .home-link {
+        grid-column: 1;
+      }
+      .nav-search-form {
+        grid-column: 1;
+      }
       .layout {
         grid-template-columns: 1fr;
       }
@@ -257,6 +323,14 @@
 </head>
 <body>
   <div class="page">
+    <nav class="top-nav" aria-label="Primary">
+      <a href="{% url 'home' %}" class="home-link">Home</a>
+      <form method="get" action="{% url 'product-list' %}" class="nav-search-form">
+        <input type="search" name="q" placeholder="Search products or listing names">
+        <button type="submit">Search</button>
+      </form>
+    </nav>
+
     <header class="header">
       <div>
         <h1>Product Highlights by Store</h1>
@@ -282,14 +356,14 @@
         {% if store_sections %}
           {% for section in store_sections %}
             <section class="store-section">
-              <h2>{{ section.store.name }}</h2>
+              <h2>{{ section.store_display_name }}</h2>
               <div class="product-carousel">
                 <button
                   type="button"
                   class="carousel-btn"
                   data-row-id="store-row-{{ forloop.counter }}"
                   data-direction="left"
-                  aria-label="Scroll {{ section.store.name }} products left"
+                  aria-label="Scroll {{ section.store_display_name }} products left"
                 >
                   &#8249;
                 </button>
@@ -302,7 +376,7 @@
                           <img src="{{ listing.sale_icon_url }}" alt="Offer badge" class="image-badge sale-badge">
                         {% endif %}
                         {% if section.store_icon_url %}
-                          <img src="{{ section.store_icon_url }}" alt="{{ section.store.name }} logo" class="image-badge store-badge">
+                          <img src="{{ section.store_icon_url }}" alt="{{ section.store_display_name }} logo" class="image-badge store-badge">
                         {% endif %}
                         {% if listing.product.image %}
                           <img src="{{ listing.product.image.url }}" alt="{{ listing.store_name }}" class="product-image">
@@ -339,7 +413,7 @@
                   class="carousel-btn"
                   data-row-id="store-row-{{ forloop.counter }}"
                   data-direction="right"
-                  aria-label="Scroll {{ section.store.name }} products right"
+                  aria-label="Scroll {{ section.store_display_name }} products right"
                 >
                   &#8250;
                 </button>

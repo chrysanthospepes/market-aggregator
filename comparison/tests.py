@@ -766,6 +766,36 @@ class ComparisonHtmlViewsTests(TestCase):
         store_names = [section["store"].name for section in response.context["store_sections"]]
         self.assertEqual(store_names, ["ab", "bazaar"])
 
+    def test_home_uses_display_name_for_known_store_key(self):
+        store = Store.objects.create(name="ab")
+        self._create_product_with_listing(
+            store=store,
+            name="AB Offer",
+            sku="ab-display-name-offer",
+            offer=True,
+            discount_percent=15,
+        )
+
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "ΑΒ Βασιλόπουλος")
+        self.assertNotContains(response, "<h2>ab</h2>", html=False)
+        self.assertEqual(
+            response.context["store_sections"][0]["store_display_name"],
+            "ΑΒ Βασιλόπουλος",
+        )
+
+    def test_home_shows_top_nav_with_home_link_and_search_form(self):
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'class="top-nav"')
+        self.assertContains(response, f'href="{reverse("home")}"')
+        self.assertContains(response, f'action="{reverse("product-list")}"')
+        self.assertContains(response, 'name="q"')
+        self.assertContains(response, "Search products or listing names")
+
     def test_home_category_links_open_filtered_product_list(self):
         store = Store.objects.create(name="sklavenitis")
         fruits = Category.objects.create(name="Fruits", slug="fruits")
@@ -1254,6 +1284,21 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'name="q"')
         self.assertContains(response, "Search products or listing names")
+
+    def test_product_list_shows_home_link_in_top_nav(self):
+        store = Store.objects.create(name="sklavenitis")
+        self._create_product_with_listing(
+            store=store,
+            name="Bread product",
+            sku="bread-product-home-link",
+        )
+
+        response = self.client.get(reverse("product-list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'class="top-nav"')
+        self.assertContains(response, f'href="{reverse("home")}"')
+        self.assertContains(response, "Home")
 
     def test_product_list_can_search_by_product_name_using_greeklish(self):
         store = Store.objects.create(name="sklavenitis")

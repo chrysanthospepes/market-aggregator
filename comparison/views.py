@@ -47,6 +47,14 @@ OFFER_FILTER_OPTIONS: tuple[tuple[str, str], ...] = (
     ("one_plus_one", "1 + 1"),
     ("two_plus_one", "2 + 1"),
 )
+STORE_DISPLAY_NAME_BY_KEY: dict[str, str] = {
+    "ab": "ΑΒ Βασιλόπουλος",
+    "bazaar": "Bazaar",
+    "kritikos": "Κρητικός",
+    "masoutis": "Μασούτης",
+    "mymarket": "My Market",
+    "sklavenitis": "Σκλαβενίτης",
+}
 
 
 def _listing_offer_condition() -> Q:
@@ -63,6 +71,11 @@ def _store_icon_url(store_name: str | None) -> str | None:
     if not normalized_name:
         return None
     return f"{settings.MEDIA_URL}stores/{normalized_name}.png"
+
+
+def _store_display_name(store_name: str | None) -> str:
+    normalized_name = (store_name or "").strip().lower()
+    return STORE_DISPLAY_NAME_BY_KEY.get(normalized_name, store_name or "")
 
 
 def _sale_icon_url(
@@ -208,6 +221,7 @@ def home(request):
         store_sections.append(
             {
                 "store": store,
+                "store_display_name": _store_display_name(store.name),
                 "store_icon_url": _store_icon_url(store.name),
                 "listings": picked_listings,
             }

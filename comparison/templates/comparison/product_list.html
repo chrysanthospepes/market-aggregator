@@ -12,6 +12,27 @@
       padding: 0 1rem;
       line-height: 1.4;
     }
+    .top-nav {
+      display: grid;
+      grid-template-columns: 1fr minmax(280px, 700px) 1fr;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    .home-link {
+      justify-self: start;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      background: #fff;
+      padding: 0.45rem 0.7rem;
+      font-size: 0.9rem;
+      color: #0a58ca;
+      text-decoration: none;
+      line-height: 1.2;
+    }
+    .home-link:hover {
+      background: #f3f7ff;
+    }
     .toolbar {
       margin-bottom: 1rem;
     }
@@ -20,7 +41,12 @@
       gap: 0.5rem;
       flex-wrap: wrap;
       align-items: center;
-      margin-bottom: 1rem;
+      margin: 0;
+      width: 100%;
+      justify-content: center;
+    }
+    .nav-search-form {
+      grid-column: 2;
     }
     .search-form input[type="search"] {
       flex: 1 1 280px;
@@ -168,6 +194,16 @@
       }
     }
     @media (max-width: 980px) {
+      .top-nav {
+        grid-template-columns: 1fr;
+        gap: 0.6rem;
+      }
+      .home-link {
+        grid-column: 1;
+      }
+      .nav-search-form {
+        grid-column: 1;
+      }
       .layout {
         grid-template-columns: 1fr;
       }
@@ -303,28 +339,31 @@
   </style>
 </head>
 <body>
+  <nav class="top-nav" aria-label="Primary">
+    <a href="{% url 'home' %}" class="home-link">Home</a>
+    <form method="get" action="" class="search-form nav-search-form">
+      <input type="search" name="q" value="{{ search_query }}" placeholder="Search products or listing names">
+      {% if search_query %}
+        <input type="hidden" name="sort" value="{{ sort }}">
+      {% else %}
+        <input type="hidden" name="sort" value="relevance">
+      {% endif %}
+      {% if selected_category_filter %}
+        <input type="hidden" name="category" value="{{ selected_category_filter }}">
+      {% endif %}
+      {% for offer_filter in selected_offer_filters %}
+        <input type="hidden" name="offer_filter" value="{{ offer_filter }}">
+      {% endfor %}
+      {% for store_id in selected_store_ids %}
+        <input type="hidden" name="stores" value="{{ store_id }}">
+      {% endfor %}
+      <button type="submit">Search</button>
+      {% if search_query %}
+        <a href="?sort={{ sort }}{% if selected_category_filter %}&category={{ selected_category_filter }}{% endif %}{% for offer_filter in selected_offer_filters %}&offer_filter={{ offer_filter }}{% endfor %}{% for store_id in selected_store_ids %}&stores={{ store_id }}{% endfor %}">Clear search</a>
+      {% endif %}
+    </form>
+  </nav>
   <h1>Available Products</h1>
-  <form method="get" action="" class="search-form">
-    <input type="search" name="q" value="{{ search_query }}" placeholder="Search products or listing names">
-    {% if search_query %}
-      <input type="hidden" name="sort" value="{{ sort }}">
-    {% else %}
-      <input type="hidden" name="sort" value="relevance">
-    {% endif %}
-    {% if selected_category_filter %}
-      <input type="hidden" name="category" value="{{ selected_category_filter }}">
-    {% endif %}
-    {% for offer_filter in selected_offer_filters %}
-      <input type="hidden" name="offer_filter" value="{{ offer_filter }}">
-    {% endfor %}
-    {% for store_id in selected_store_ids %}
-      <input type="hidden" name="stores" value="{{ store_id }}">
-    {% endfor %}
-    <button type="submit">Search</button>
-    {% if search_query %}
-      <a href="?sort={{ sort }}{% if selected_category_filter %}&category={{ selected_category_filter }}{% endif %}{% for offer_filter in selected_offer_filters %}&offer_filter={{ offer_filter }}{% endfor %}{% for store_id in selected_store_ids %}&stores={{ store_id }}{% endfor %}">Clear search</a>
-    {% endif %}
-  </form>
   <div class="layout">
     <aside class="sidebar">
       <div class="category-picker">
