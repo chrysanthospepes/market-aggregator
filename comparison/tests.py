@@ -1758,6 +1758,54 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertContains(response_store_a, "No offer")
         self.assertNotContains(response_store_a, "2 + 1")
 
+    def test_product_list_store_and_offer_filters_have_independent_clear_links(self):
+        store_a = Store.objects.create(name="ab")
+        store_b = Store.objects.create(name="bazaar")
+        category = Category.objects.create(name="Fruits", slug="fruits")
+
+        self._create_product_with_listing(
+            store=store_a,
+            category=category,
+            name="Apple",
+            sku="apple-a",
+            offer=False,
+        )
+        self._create_product_with_listing(
+            store=store_b,
+            category=category,
+            name="Pear",
+            sku="pear-b",
+            offer=True,
+            discount_percent=15,
+        )
+
+        response = self.client.get(
+            reverse("product-list"),
+            {
+                "sort": "price_desc",
+                PRICE_PROFILE_PARAM: KRITIKOS_ELIGIBLE_HOUSEHOLD_PROFILE,
+                "category": category.slug,
+                "stores": [store_a.id],
+                "offer_filter": ["no_offer"],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            (
+                f'href="?sort=price_desc&price_profile={KRITIKOS_ELIGIBLE_HOUSEHOLD_PROFILE}'
+                f'&category={category.slug}&offer_filter=no_offer"'
+            ),
+        )
+        self.assertContains(
+            response,
+            (
+                f'href="?sort=price_desc&price_profile={KRITIKOS_ELIGIBLE_HOUSEHOLD_PROFILE}'
+                f'&category={category.slug}&stores={store_a.id}"'
+            ),
+        )
+
     def test_offer_filter_applies_selected_bucket(self):
         store = Store.objects.create(name="sklavenitis")
 

@@ -66,18 +66,55 @@ h1 {
   font-weight: 600;
 }
 
-.results-sort select {
+.results-sort .select-shell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
   border: 1px solid var(--border-strong);
-  border-radius: 0;
-  padding: 0.42rem 0.62rem;
+  border-radius: 10px;
   background: var(--surface);
+  overflow: hidden;
+}
+
+.results-sort .select-shell::after {
+  content: "";
+  position: absolute;
+  right: 0.82rem;
+  top: 50%;
+  width: 0.46rem;
+  height: 0.46rem;
+  border-right: 2px solid #55728f;
+  border-bottom: 2px solid #55728f;
+  transform: translateY(-65%) rotate(45deg);
+  pointer-events: none;
+}
+
+.results-sort .select-shell:focus-within {
+  border-color: #8fadc9;
+  box-shadow: 0 0 0 3px rgba(31, 79, 123, 0.15);
+}
+
+.results-sort select {
+  border: 0;
+  border-radius: 0;
+  padding: 0.42rem 2rem 0.42rem 0.62rem;
+  background: transparent;
   font-size: 0.92rem;
   color: var(--text-primary);
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  box-shadow: none;
+}
+
+.results-sort select:focus {
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .results-sort button {
   border: 1px solid var(--border-strong);
-  border-radius: 0;
+  border-radius: 10px;
   background: var(--surface);
   color: var(--accent);
   padding: 0.42rem 0.66rem;
@@ -110,6 +147,13 @@ h1 {
 
 .sidebar .price-profile-panel {
   margin-bottom: 0.9rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  padding-bottom: 0.9rem;
+  border-bottom: 1px solid var(--border);
+  box-shadow: none;
 }
 
 .category-picker {
@@ -134,7 +178,12 @@ h1 {
   margin-bottom: 0.8rem;
 }
 
+.offer-option-list {
+  margin-bottom: 0.8rem;
+}
+
 .offer-options {
+  margin-top: 0.8rem;
   margin-bottom: 0.8rem;
   border-top: 1px solid var(--border);
   padding-top: 0.8rem;
@@ -148,6 +197,11 @@ h1 {
   margin-bottom: 0.48rem;
   font-size: 0.92rem;
   color: #2f475f;
+}
+
+.store-option:last-child,
+.offer-option:last-child {
+  margin-bottom: 0;
 }
 
 .store-option input[type="checkbox"],

@@ -106,6 +106,9 @@
         {% if selected_category_filter %}
           <input type="hidden" name="category" value="{{ selected_category_filter }}">
         {% endif %}
+        {% for offer_filter in selected_offer_filters %}
+          <input type="hidden" name="offer_filter" value="{{ offer_filter }}">
+        {% endfor %}
         <div class="store-options">
           {% for store in stores %}
             <label class="store-option">
@@ -122,36 +125,59 @@
             </label>
           {% endfor %}
         </div>
-        <div class="offer-options">
-          <h2>Offer filter</h2>
-          {% for option in available_offer_filters %}
-            <label class="offer-option">
-              <input
-                type="checkbox"
-                name="offer_filter"
-                value="{{ option.value }}"
-                {% if option.value in selected_offer_filters %}checked{% endif %}
-              >
-              <span>{{ option.label }} <span class="store-count">({{ option.count }})</span></span>
-            </label>
-          {% endfor %}
-        </div>
         <div class="filter-actions">
           <button type="submit">Apply</button>
-          <a href="?sort={{ sort }}{% if selected_price_profile %}&price_profile={{ selected_price_profile }}{% endif %}{% if search_query %}&q={{ search_query|urlencode }}{% endif %}{% if selected_category_filter %}&category={{ selected_category_filter }}{% endif %}">Clear</a>
+          <a href="?sort={{ sort }}{% if selected_price_profile %}&price_profile={{ selected_price_profile }}{% endif %}{% if search_query %}&q={{ search_query|urlencode }}{% endif %}{% if selected_category_filter %}&category={{ selected_category_filter }}{% endif %}{% for offer_filter in selected_offer_filters %}&offer_filter={{ offer_filter }}{% endfor %}">Clear</a>
         </div>
       </form>
+      <div class="offer-options">
+        <h2>Offer filter</h2>
+        <form method="get" action="">
+          {% if search_query %}
+            <input type="hidden" name="q" value="{{ search_query }}">
+          {% endif %}
+          {% if selected_price_profile %}
+            <input type="hidden" name="price_profile" value="{{ selected_price_profile }}">
+          {% endif %}
+          <input type="hidden" name="sort" value="{{ sort }}">
+          {% if selected_category_filter %}
+            <input type="hidden" name="category" value="{{ selected_category_filter }}">
+          {% endif %}
+          {% for store_id in selected_store_ids %}
+            <input type="hidden" name="stores" value="{{ store_id }}">
+          {% endfor %}
+          <div class="offer-option-list">
+            {% for option in available_offer_filters %}
+              <label class="offer-option">
+                <input
+                  type="checkbox"
+                  name="offer_filter"
+                  value="{{ option.value }}"
+                  {% if option.value in selected_offer_filters %}checked{% endif %}
+                >
+                <span>{{ option.label }} <span class="store-count">({{ option.count }})</span></span>
+              </label>
+            {% endfor %}
+          </div>
+          <div class="filter-actions">
+            <button type="submit">Apply</button>
+            <a href="?sort={{ sort }}{% if selected_price_profile %}&price_profile={{ selected_price_profile }}{% endif %}{% if search_query %}&q={{ search_query|urlencode }}{% endif %}{% if selected_category_filter %}&category={{ selected_category_filter }}{% endif %}{% for store_id in selected_store_ids %}&stores={{ store_id }}{% endfor %}">Clear</a>
+          </div>
+        </form>
+      </div>
     </aside>
 
     <main class="main-content">
       <form method="get" action="" class="results-controls">
         <div class="results-sort">
           <label for="sort-select">Sort:</label>
-          <select id="sort-select" name="sort" onchange="this.form.submit()">
-            {% for value, label in sort_options %}
-              <option value="{{ value }}" {% if sort == value %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
+          <div class="select-shell">
+            <select id="sort-select" name="sort" onchange="this.form.submit()">
+              {% for value, label in sort_options %}
+                <option value="{{ value }}" {% if sort == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
           <noscript>
             <button type="submit">Apply sort</button>
           </noscript>
