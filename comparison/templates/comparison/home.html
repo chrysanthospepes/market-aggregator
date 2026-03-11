@@ -94,6 +94,9 @@
                         <p class="unit-price-line">
                           {% if listing.display_final_unit_price is not None %}
                             {{ listing.display_final_unit_price|floatformat:2 }}€{% if listing.unit_of_measure == "kilos" %}/κιλό{% elif listing.unit_of_measure == "liters" %}/λίτρο{% else %}/τεμάχιο{% endif %}
+                            {% if listing.display_original_unit_price is not None and listing.display_final_unit_price is not None and listing.display_original_unit_price > listing.display_final_unit_price %}
+                              <span class="old-price"><s>{{ listing.display_original_unit_price|floatformat:2 }}€{% if listing.unit_of_measure == "kilos" %}/κιλό{% elif listing.unit_of_measure == "liters" %}/λίτρο{% else %}/τεμάχιο{% endif %}</s></span>
+                            {% endif %}
                           {% else %}
                             -
                           {% endif %}

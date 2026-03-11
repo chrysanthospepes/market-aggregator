@@ -1016,6 +1016,24 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "1.20€/λίτρο")
 
+    def test_home_card_shows_original_unit_price_when_present(self):
+        store = Store.objects.create(name="sklavenitis")
+        self._create_product_with_listing(
+            store=store,
+            name="Home card product",
+            sku="home-card-product",
+            final_price="1.50",
+            final_unit_price="1.2345",
+            original_price=Decimal("2.10"),
+            original_unit_price=Decimal("1.9000"),
+        )
+
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "1.23€/τεμάχιο")
+        self.assertContains(response, "<s>1.90€/τεμάχιο</s>", html=True)
+
     def test_home_price_profile_adjusts_kritikos_listing_prices(self):
         store = Store.objects.create(name="kritikos")
         self._create_product_with_listing(
