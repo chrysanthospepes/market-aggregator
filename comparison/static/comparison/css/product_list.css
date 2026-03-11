@@ -108,6 +108,10 @@ h1 {
   color: #273d56;
 }
 
+.sidebar .price-profile-panel {
+  margin-bottom: 0.9rem;
+}
+
 .category-picker {
   margin-bottom: 0.9rem;
   padding-bottom: 0.9rem;
@@ -286,12 +290,6 @@ h1 {
   margin: 0.45rem 0 0;
   font-size: 0.9rem;
   color: #3c526a;
-}
-
-.old-price {
-  margin-left: 0.35rem;
-  font-size: 0.84rem;
-  color: #6a7d90;
 }
 
 .pagination {

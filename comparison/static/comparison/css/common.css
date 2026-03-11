@@ -137,6 +137,39 @@ input[type="submit"]:hover {
   color: var(--text-muted);
 }
 
+.price-profile-panel {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 0.85rem 0.9rem;
+  box-shadow: var(--shadow-soft);
+}
+
+.price-profile-form {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.price-profile-form label {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #39516b;
+}
+
+.old-price {
+  margin-left: 0.35rem;
+  font-size: 0.84rem;
+  color: #6a7d90;
+}
+
+.price-adjustment-note {
+  margin-top: 0.22rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
 @media (max-width: 1020px) {
   .top-nav {
     grid-template-columns: 1fr;

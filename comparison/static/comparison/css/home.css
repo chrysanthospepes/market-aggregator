@@ -29,6 +29,10 @@
   color: #273d56;
 }
 
+.sidebar .price-profile-panel {
+  margin-bottom: 0.9rem;
+}
+
 .category-list {
   display: grid;
   gap: 0.4rem;

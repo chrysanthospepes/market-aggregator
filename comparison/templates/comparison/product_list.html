@@ -13,6 +13,9 @@
     <a href="{% url 'home' %}" class="home-link">Home</a>
     <form method="get" action="" class="search-form nav-search-form">
       <input type="search" name="q" value="{{ search_query }}" placeholder="Search products or listing names">
+      {% if selected_price_profile %}
+        <input type="hidden" name="price_profile" value="{{ selected_price_profile }}">
+      {% endif %}
       {% if search_query %}
         <input type="hidden" name="sort" value="{{ sort }}">
       {% else %}
@@ -29,18 +32,47 @@
       {% endfor %}
       <button type="submit">Search</button>
       {% if search_query %}
-        <a href="?sort={{ sort }}{% if selected_category_filter %}&category={{ selected_category_filter }}{% endif %}{% for offer_filter in selected_offer_filters %}&offer_filter={{ offer_filter }}{% endfor %}{% for store_id in selected_store_ids %}&stores={{ store_id }}{% endfor %}">Clear search</a>
+        <a href="?sort={{ sort }}{% if selected_price_profile %}&price_profile={{ selected_price_profile }}{% endif %}{% if selected_category_filter %}&category={{ selected_category_filter }}{% endif %}{% for offer_filter in selected_offer_filters %}&offer_filter={{ offer_filter }}{% endfor %}{% for store_id in selected_store_ids %}&stores={{ store_id }}{% endfor %}">Clear search</a>
       {% endif %}
     </form>
   </nav>
   <h1>Available Products</h1>
   <div class="layout">
     <aside class="sidebar">
+      <div class="price-profile-panel">
+        <h2>Pricing</h2>
+        <form method="get" action="" class="price-profile-form">
+          {% if search_query %}
+            <input type="hidden" name="q" value="{{ search_query }}">
+          {% endif %}
+          <input type="hidden" name="sort" value="{{ sort }}">
+          {% if selected_category_filter %}
+            <input type="hidden" name="category" value="{{ selected_category_filter }}">
+          {% endif %}
+          {% for offer_filter in selected_offer_filters %}
+            <input type="hidden" name="offer_filter" value="{{ offer_filter }}">
+          {% endfor %}
+          {% for store_id in selected_store_ids %}
+            <input type="hidden" name="stores" value="{{ store_id }}">
+          {% endfor %}
+          <select id="price-profile-select" name="price_profile" onchange="this.form.submit()">
+            {% for value, label in price_profile_options %}
+              <option value="{{ value }}" {% if selected_price_profile == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          <noscript>
+            <button type="submit">Apply</button>
+          </noscript>
+        </form>
+      </div>
       <div class="category-picker">
         <h2>Category</h2>
         <form method="get" action="">
           {% if search_query %}
             <input type="hidden" name="q" value="{{ search_query }}">
+          {% endif %}
+          {% if selected_price_profile %}
+            <input type="hidden" name="price_profile" value="{{ selected_price_profile }}">
           {% endif %}
           <input type="hidden" name="sort" value="{{ sort }}">
           {% for offer_filter in selected_offer_filters %}
@@ -66,6 +98,9 @@
       <form method="get" action="">
         {% if search_query %}
           <input type="hidden" name="q" value="{{ search_query }}">
+        {% endif %}
+        {% if selected_price_profile %}
+          <input type="hidden" name="price_profile" value="{{ selected_price_profile }}">
         {% endif %}
         <input type="hidden" name="sort" value="{{ sort }}">
         {% if selected_category_filter %}
@@ -103,7 +138,7 @@
         </div>
         <div class="filter-actions">
           <button type="submit">Apply</button>
-          <a href="?sort={{ sort }}{% if search_query %}&q={{ search_query|urlencode }}{% endif %}{% if selected_category_filter %}&category={{ selected_category_filter }}{% endif %}">Clear</a>
+          <a href="?sort={{ sort }}{% if selected_price_profile %}&price_profile={{ selected_price_profile }}{% endif %}{% if search_query %}&q={{ search_query|urlencode }}{% endif %}{% if selected_category_filter %}&category={{ selected_category_filter }}{% endif %}">Clear</a>
         </div>
       </form>
     </aside>
@@ -123,6 +158,9 @@
         </div>
         {% if search_query %}
           <input type="hidden" name="q" value="{{ search_query }}">
+        {% endif %}
+        {% if selected_price_profile %}
+          <input type="hidden" name="price_profile" value="{{ selected_price_profile }}">
         {% endif %}
         {% if selected_category_filter %}
           <input type="hidden" name="category" value="{{ selected_category_filter }}">
@@ -199,7 +237,7 @@
         <section class="product-grid">
           {% for product in products %}
             <article class="product-card">
-              <a href="{% url 'product-detail' product.id %}">
+              <a href="{% url 'product-detail' product.id %}{% if selected_price_profile_query %}?{{ selected_price_profile_query }}{% endif %}">
                 <div class="image-wrap">
                   {% if product.sale_icon_url %}
                     <img
@@ -225,25 +263,25 @@
                   <h2 class="product-name">{{ product.canonical_name }}</h2>
 
                   <p class="price-line">
-                    {% if product.cheapest_final_price is not None %}
-                      {{ product.cheapest_final_price|floatformat:2 }}€
+                    {% if product.display_final_price is not None %}
+                      {{ product.display_final_price|floatformat:2 }}€
                     {% else %}
                       -
                     {% endif %}
-                    {% if product.cheapest_original_price is not None and product.cheapest_final_price is not None and product.cheapest_original_price > product.cheapest_final_price %}
-                      <span class="old-price"><s>{{ product.cheapest_original_price|floatformat:2 }}€</s></span>
+                    {% if product.display_original_price is not None and product.display_final_price is not None and product.display_original_price > product.display_final_price %}
+                      <span class="old-price"><s>{{ product.display_original_price|floatformat:2 }}€</s></span>
                     {% endif %}
                   </p>
 
                   <p class="unit-price-line">
                     {% with uom=product.cheapest_unit_of_measure %}
-                      {% if product.cheapest_final_unit_price is not None %}
-                        {{ product.cheapest_final_unit_price|floatformat:2 }}€{% if uom == "kilos" %}/κιλό{% elif uom == "liters" %}/λίτρο{% else %}/τεμάχιο{% endif %}
+                      {% if product.display_final_unit_price is not None %}
+                        {{ product.display_final_unit_price|floatformat:2 }}€{% if uom == "kilos" %}/κιλό{% elif uom == "liters" %}/λίτρο{% else %}/τεμάχιο{% endif %}
                       {% else %}
                         -
                       {% endif %}
-                      {% if product.cheapest_original_unit_price is not None and product.cheapest_final_unit_price is not None and product.cheapest_original_unit_price > product.cheapest_final_unit_price %}
-                        <span class="old-price"><s>{{ product.cheapest_original_unit_price|floatformat:2 }}€{% if uom == "kilos" %}/κιλό{% elif uom == "liters" %}/λίτρο{% else %}/τεμάχιο{% endif %}</s></span>
+                      {% if product.display_original_unit_price is not None and product.display_final_unit_price is not None and product.display_original_unit_price > product.display_final_unit_price %}
+                        <span class="old-price"><s>{{ product.display_original_unit_price|floatformat:2 }}€{% if uom == "kilos" %}/κιλό{% elif uom == "liters" %}/λίτρο{% else %}/τεμάχιο{% endif %}</s></span>
                       {% endif %}
                     {% endwith %}
                   </p>

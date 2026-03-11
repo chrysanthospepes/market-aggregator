@@ -8,6 +8,10 @@ from django.urls import reverse
 from catalog.models import Category, CategoryAlias, Product, Store
 from comparison.admin import MatchReviewAdmin
 from comparison.models import MatchReview
+from comparison.pricing import (
+    KRITIKOS_ELIGIBLE_HOUSEHOLD_PROFILE,
+    PRICE_PROFILE_PARAM,
+)
 from ingestion.models import StoreListing
 from matching.matcher import match_store_listings
 
@@ -704,6 +708,42 @@ class ComparisonApiTests(TestCase):
         self.assertEqual(payload["offers"][0]["store"], "sklavenitis")
         self.assertIs(payload["offers"][0]["offer"], False)
 
+    def test_product_offers_endpoint_includes_effective_prices_for_selected_profile(self):
+        store = Store.objects.create(name="kritikos")
+        product = Product.objects.create(canonical_name="Profile aware product")
+
+        StoreListing.objects.create(
+            store=store,
+            store_sku="kritikos-effective",
+            store_name="Profile aware product",
+            source_category="frouta-lachanika",
+            url="https://example.com/kritikos-effective",
+            final_price=Decimal("2.00"),
+            final_unit_price=Decimal("2.00"),
+            original_price=Decimal("2.40"),
+            original_unit_price=Decimal("2.40"),
+            product=product,
+            is_active=True,
+        )
+
+        response = self.client.get(
+            reverse("product-offers", args=[product.id]),
+            {PRICE_PROFILE_PARAM: KRITIKOS_ELIGIBLE_HOUSEHOLD_PROFILE},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(
+            payload["price_profile"]["key"],
+            KRITIKOS_ELIGIBLE_HOUSEHOLD_PROFILE,
+        )
+        offer = payload["offers"][0]
+        self.assertEqual(offer["final_price"], "2.00")
+        self.assertEqual(offer["effective_final_price"], "1.80")
+        self.assertEqual(offer["effective_final_unit_price"], "1.80")
+        self.assertEqual(offer["effective_original_price"], "2.16")
+        self.assertTrue(offer["price_profile_applies"])
+
 
 class ComparisonHtmlViewsTests(TestCase):
     def _create_product_with_listing(
@@ -975,6 +1015,64 @@ class ComparisonHtmlViewsTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "1.20€/λίτρο")
+
+    def test_home_price_profile_adjusts_kritikos_listing_prices(self):
+        store = Store.objects.create(name="kritikos")
+        self._create_product_with_listing(
+            store=store,
+            name="Eligible home product",
+            sku="eligible-home-product",
+            final_price="2.00",
+            final_unit_price="2.00",
+        )
+
+        response = self.client.get(
+            reverse("home"),
+            {PRICE_PROFILE_PARAM: KRITIKOS_ELIGIBLE_HOUSEHOLD_PROFILE},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "1.80€")
+        self.assertNotContains(response, "Applies an extra 10% to Kritikos listings only")
+
+    def test_product_detail_price_profile_adjusts_only_kritikos_rows(self):
+        kritikos = Store.objects.create(name="kritikos")
+        mymarket = Store.objects.create(name="mymarket")
+        product = Product.objects.create(canonical_name="Detail profile product")
+
+        StoreListing.objects.create(
+            store=kritikos,
+            store_sku="detail-kritikos",
+            store_name="Detail Kritikos",
+            url="https://example.com/detail-kritikos",
+            final_price=Decimal("2.00"),
+            final_unit_price=Decimal("2.00"),
+            original_price=Decimal("2.50"),
+            original_unit_price=Decimal("2.50"),
+            product=product,
+            is_active=True,
+        )
+        StoreListing.objects.create(
+            store=mymarket,
+            store_sku="detail-mymarket",
+            store_name="Detail Mymarket",
+            url="https://example.com/detail-mymarket",
+            final_price=Decimal("1.95"),
+            final_unit_price=Decimal("1.95"),
+            product=product,
+            is_active=True,
+        )
+
+        response = self.client.get(
+            reverse("product-detail", args=[product.id]),
+            {PRICE_PROFILE_PARAM: KRITIKOS_ELIGIBLE_HOUSEHOLD_PROFILE},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "1.80€")
+        self.assertContains(response, "<s>2.25€</s>", html=True)
+        self.assertContains(response, "1.95€")
+        self.assertContains(response, "Includes profile discount", count=1)
 
     def test_product_list_can_sort_by_lowest_final_unit_price(self):
         store = Store.objects.create(name="sklavenitis")
@@ -1533,6 +1631,76 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertEqual(product_two.cheapest_final_unit_price, Decimal("1.00"))
         self.assertEqual(product_two.cheapest_final_price, Decimal("1.00"))
         self.assertEqual(product_two.active_listing_count, 3)
+
+    def test_price_profile_changes_cheapest_store_and_sort_order_for_kritikos(self):
+        kritikos = Store.objects.create(name="kritikos")
+        mymarket = Store.objects.create(name="mymarket")
+
+        profile_product = Product.objects.create(canonical_name="Profile cheapest product")
+        regular_product = Product.objects.create(canonical_name="Regular cheaper product")
+
+        StoreListing.objects.create(
+            store=kritikos,
+            store_sku="profile-kritikos",
+            store_name="Profile cheapest Kritikos",
+            url="https://example.com/profile-kritikos",
+            final_price=Decimal("1.00"),
+            final_unit_price=Decimal("1.00"),
+            product=profile_product,
+            is_active=True,
+        )
+        StoreListing.objects.create(
+            store=mymarket,
+            store_sku="profile-mymarket",
+            store_name="Profile cheapest Mymarket",
+            url="https://example.com/profile-mymarket",
+            final_price=Decimal("0.95"),
+            final_unit_price=Decimal("0.95"),
+            product=profile_product,
+            is_active=True,
+        )
+        StoreListing.objects.create(
+            store=mymarket,
+            store_sku="regular-mymarket",
+            store_name="Regular cheaper Mymarket",
+            url="https://example.com/regular-mymarket",
+            final_price=Decimal("0.92"),
+            final_unit_price=Decimal("0.92"),
+            product=regular_product,
+            is_active=True,
+        )
+
+        response_standard = self.client.get(reverse("product-list"), {"sort": "price_asc"})
+        standard_names = [product.canonical_name for product in response_standard.context["products"]]
+        self.assertEqual(
+            standard_names[:2],
+            ["Regular cheaper product", "Profile cheapest product"],
+        )
+
+        response_profile = self.client.get(
+            reverse("product-list"),
+            {
+                "sort": "price_asc",
+                PRICE_PROFILE_PARAM: KRITIKOS_ELIGIBLE_HOUSEHOLD_PROFILE,
+            },
+        )
+
+        self.assertEqual(response_profile.status_code, 200)
+        profile_names = [product.canonical_name for product in response_profile.context["products"]]
+        self.assertEqual(
+            profile_names[:2],
+            ["Profile cheapest product", "Regular cheaper product"],
+        )
+        adjusted_product = next(
+            product for product in response_profile.context["products"] if product.id == profile_product.id
+        )
+        self.assertEqual(adjusted_product.cheapest_store_name, "kritikos")
+        self.assertEqual(
+            adjusted_product.display_final_price.quantize(Decimal("0.01")),
+            Decimal("0.90"),
+        )
+        self.assertTrue(adjusted_product.price_profile_applies)
+        self.assertContains(response_profile, "0.90€")
 
     def test_offer_filter_options_respect_selected_store_scope(self):
         store_a = Store.objects.create(name="ab")

@@ -14,17 +14,33 @@
       <a href="{% url 'home' %}" class="home-link">Home</a>
       <form method="get" action="{% url 'product-list' %}" class="nav-search-form">
         <input type="search" name="q" placeholder="Search products or listing names">
+        {% if selected_price_profile %}
+          <input type="hidden" name="price_profile" value="{{ selected_price_profile }}">
+        {% endif %}
         <button type="submit">Search</button>
       </form>
     </nav>
 
     <div class="layout">
       <aside class="sidebar">
+        <div class="price-profile-panel">
+          <h2>Pricing</h2>
+          <form method="get" action="" class="price-profile-form">
+            <select id="home-price-profile" name="price_profile" onchange="this.form.submit()">
+              {% for value, label in price_profile_options %}
+                <option value="{{ value }}" {% if selected_price_profile == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            <noscript>
+              <button type="submit">Apply</button>
+            </noscript>
+          </form>
+        </div>
         <h2>Category</h2>
         <nav class="category-list" aria-label="Category filter">
-          <a href="{% url 'product-list' %}" class="category-link">All categories</a>
+          <a href="{% url 'product-list' %}{% if selected_price_profile_query %}?{{ selected_price_profile_query }}{% endif %}" class="category-link">All categories</a>
           {% for category in categories %}
-            <a href="{% url 'product-list' %}?category={{ category.slug }}" class="category-link">
+            <a href="{% url 'product-list' %}?category={{ category.slug }}{% if selected_price_profile_query %}&{{ selected_price_profile_query }}{% endif %}" class="category-link">
               {{ category.name }}
             </a>
           {% endfor %}
@@ -49,7 +65,7 @@
                 <div class="product-row" id="store-row-{{ forloop.counter }}">
                 {% for listing in section.listings %}
                   <article class="product-card">
-                    <a href="{% url 'product-detail' listing.product_id %}">
+                    <a href="{% url 'product-detail' listing.product_id %}{% if selected_price_profile_query %}?{{ selected_price_profile_query }}{% endif %}">
                       <div class="image-wrap">
                         {% if listing.sale_icon_url %}
                           <img src="{{ listing.sale_icon_url }}" alt="Offer badge" class="image-badge sale-badge">
@@ -66,18 +82,18 @@
                       <div class="content">
                         <h3 class="product-name">{{ listing.store_name }}</h3>
                         <p class="price-line">
-                          {% if listing.final_price is not None %}
-                            {{ listing.final_price|floatformat:2 }}€
+                          {% if listing.display_final_price is not None %}
+                            {{ listing.display_final_price|floatformat:2 }}€
                           {% else %}
                             -
                           {% endif %}
-                          {% if listing.original_price is not None and listing.final_price is not None and listing.original_price > listing.final_price %}
-                            <span class="old-price"><s>{{ listing.original_price|floatformat:2 }}€</s></span>
+                          {% if listing.display_original_price is not None and listing.display_final_price is not None and listing.display_original_price > listing.display_final_price %}
+                            <span class="old-price"><s>{{ listing.display_original_price|floatformat:2 }}€</s></span>
                           {% endif %}
                         </p>
                         <p class="unit-price-line">
-                          {% if listing.final_unit_price is not None %}
-                            {{ listing.final_unit_price|floatformat:2 }}€{% if listing.unit_of_measure == "kilos" %}/κιλό{% elif listing.unit_of_measure == "liters" %}/λίτρο{% else %}/τεμάχιο{% endif %}
+                          {% if listing.display_final_unit_price is not None %}
+                            {{ listing.display_final_unit_price|floatformat:2 }}€{% if listing.unit_of_measure == "kilos" %}/κιλό{% elif listing.unit_of_measure == "liters" %}/λίτρο{% else %}/τεμάχιο{% endif %}
                           {% else %}
                             -
                           {% endif %}

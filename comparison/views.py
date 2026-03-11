@@ -7,6 +7,7 @@ from django.db.models import (
     BooleanField,
     Case,
     Count,
+    DecimalField,
     F,
     FloatField,
     IntegerField,
@@ -27,6 +28,15 @@ from django.utils.http import urlencode
 from catalog.models import Category, Product, Store
 from catalog.search_normalizer import build_search_forms
 from ingestion.models import StoreListing
+from comparison.pricing import (
+    PRICE_PROFILE_OPTIONS,
+    PRICE_PROFILE_PARAM,
+    adjusted_price_expression,
+    apply_price_profile_value,
+    get_price_profile,
+    parse_price_profile,
+    price_profile_applies_to_store,
+)
 
 HOME_PRODUCTS_PER_STORE = 20
 PRODUCTS_PER_PAGE = 20
@@ -167,8 +177,11 @@ def _selected_filters_query(
     offer_filters: list[str],
     category_filter: str,
     search_query: str,
+    price_profile: str,
 ) -> str:
     params: list[tuple[str, str]] = []
+    if price_profile:
+        params.append((PRICE_PROFILE_PARAM, price_profile))
     if search_query:
         params.append(("q", search_query))
     if category_filter:
@@ -180,6 +193,51 @@ def _selected_filters_query(
     if not params:
         return ""
     return "&" + urlencode(params, doseq=True)
+
+
+def _selected_price_profile_query(price_profile: str) -> str:
+    if not price_profile:
+        return ""
+    return urlencode([(PRICE_PROFILE_PARAM, price_profile)])
+
+
+def _set_listing_display_prices(listing: StoreListing, *, price_profile: str) -> None:
+    store_name = listing.store.name if getattr(listing, "store_id", None) else None
+    listing.display_final_price = apply_price_profile_value(
+        listing.final_price,
+        store_name=store_name,
+        price_profile=price_profile,
+    )
+    listing.display_final_unit_price = apply_price_profile_value(
+        listing.final_unit_price,
+        store_name=store_name,
+        price_profile=price_profile,
+    )
+    listing.display_original_price = apply_price_profile_value(
+        listing.original_price,
+        store_name=store_name,
+        price_profile=price_profile,
+    )
+    listing.display_original_unit_price = apply_price_profile_value(
+        listing.original_unit_price,
+        store_name=store_name,
+        price_profile=price_profile,
+    )
+    listing.price_profile_applies = price_profile_applies_to_store(
+        store_name=store_name,
+        price_profile=price_profile,
+    )
+
+
+def _set_product_display_prices(product, *, price_profile: str) -> None:
+    product.display_final_price = getattr(product, "cheapest_final_price", None)
+    product.display_final_unit_price = getattr(product, "cheapest_final_unit_price", None)
+    product.display_original_price = getattr(product, "cheapest_original_price", None)
+    product.display_original_unit_price = getattr(product, "cheapest_original_unit_price", None)
+    product.price_profile_applies = price_profile_applies_to_store(
+        store_name=getattr(product, "cheapest_store_name", None),
+        price_profile=price_profile,
+    )
 
 
 def _pagination_page_tokens(*, current_page: int, total_pages: int) -> list[int | None]:
@@ -205,6 +263,8 @@ def _pagination_page_tokens(*, current_page: int, total_pages: int) -> list[int 
 
 
 def home(request):
+    selected_price_profile = parse_price_profile(request.GET.get(PRICE_PROFILE_PARAM))
+    selected_price_profile_meta = get_price_profile(selected_price_profile)
     categories = Category.objects.order_by("name")
 
     stores = Store.objects.filter(listings__is_active=True).order_by("name").distinct()
@@ -212,7 +272,7 @@ def home(request):
 
     for store in stores:
         listings = (
-            StoreListing.objects.select_related("product")
+            StoreListing.objects.select_related("product", "store")
             .filter(
                 store=store,
                 is_active=True,
@@ -239,6 +299,7 @@ def home(request):
                 one_plus_one=listing.one_plus_one,
                 two_plus_one=listing.two_plus_one,
             )
+            _set_listing_display_prices(listing, price_profile=selected_price_profile)
 
         store_sections.append(
             {
@@ -255,6 +316,10 @@ def home(request):
         {
             "categories": categories,
             "store_sections": store_sections,
+            "price_profile_options": PRICE_PROFILE_OPTIONS,
+            "selected_price_profile": selected_price_profile,
+            "selected_price_profile_meta": selected_price_profile_meta,
+            "selected_price_profile_query": _selected_price_profile_query(selected_price_profile),
         },
     )
 
@@ -273,6 +338,8 @@ def product_list(request):
     selected_category_filter = "" if search_query_forms else requested_category_filter
     selected_store_ids = _parse_selected_store_ids(request.GET.getlist("stores"))
     selected_offer_filters = _parse_selected_offer_filters(request.GET.getlist("offer_filter"))
+    selected_price_profile = parse_price_profile(request.GET.get(PRICE_PROFILE_PARAM))
+    selected_price_profile_meta = get_price_profile(selected_price_profile)
     category_listing_filter = Q(products__store_listings__is_active=True)
     if selected_store_ids:
         category_listing_filter &= Q(products__store_listings__store_id__in=selected_store_ids)
@@ -297,13 +364,52 @@ def product_list(request):
         active_listings = active_listings.filter(store_id__in=selected_store_ids)
         selected_listing_filter &= Q(store_listings__store_id__in=selected_store_ids)
 
+    active_listings = active_listings.annotate(
+        effective_hidden_price=adjusted_price_expression(
+            "hidden_price",
+            store_field_name="store__name",
+            price_profile=selected_price_profile,
+        ),
+        effective_final_price=adjusted_price_expression(
+            "final_price",
+            store_field_name="store__name",
+            price_profile=selected_price_profile,
+        ),
+        effective_original_price=adjusted_price_expression(
+            "original_price",
+            store_field_name="store__name",
+            price_profile=selected_price_profile,
+        ),
+        effective_hidden_unit_price=adjusted_price_expression(
+            "hidden_unit_price",
+            store_field_name="store__name",
+            price_profile=selected_price_profile,
+        ),
+        effective_final_unit_price=adjusted_price_expression(
+            "final_unit_price",
+            store_field_name="store__name",
+            price_profile=selected_price_profile,
+        ),
+        effective_original_unit_price=adjusted_price_expression(
+            "original_unit_price",
+            store_field_name="store__name",
+            price_profile=selected_price_profile,
+        ),
+    )
+
     cheapest_sort_price_listing = (
-        active_listings.annotate(sort_price=Coalesce("hidden_price", "final_price"))
+        active_listings.annotate(
+            sort_price=Coalesce(
+                "effective_hidden_price",
+                "effective_final_price",
+                output_field=DecimalField(max_digits=12, decimal_places=4),
+            )
+        )
         .exclude(sort_price__isnull=True)
         .order_by("sort_price", "id")
     )
-    cheapest_price_listing = active_listings.exclude(final_price__isnull=True).order_by(
-        "final_price",
+    cheapest_price_listing = active_listings.exclude(effective_final_price__isnull=True).order_by(
+        "effective_final_price",
         "id",
     )
 
@@ -321,7 +427,19 @@ def product_list(request):
                 distinct=True,
             ),
             lowest_sort_unit_price=Min(
-                Coalesce("store_listings__hidden_unit_price", "store_listings__final_unit_price"),
+                Coalesce(
+                    adjusted_price_expression(
+                        "store_listings__hidden_unit_price",
+                        store_field_name="store_listings__store__name",
+                        price_profile=selected_price_profile,
+                    ),
+                    adjusted_price_expression(
+                        "store_listings__final_unit_price",
+                        store_field_name="store_listings__store__name",
+                        price_profile=selected_price_profile,
+                    ),
+                    output_field=DecimalField(max_digits=12, decimal_places=4),
+                ),
                 filter=selected_listing_filter
                 & (
                     Q(store_listings__hidden_unit_price__isnull=False)
@@ -329,15 +447,23 @@ def product_list(request):
                 ),
             ),
             lowest_final_unit_price=Min(
-                "store_listings__final_unit_price",
+                adjusted_price_expression(
+                    "store_listings__final_unit_price",
+                    store_field_name="store_listings__store__name",
+                    price_profile=selected_price_profile,
+                ),
                 filter=selected_listing_filter & Q(store_listings__final_unit_price__isnull=False),
             ),
             cheapest_sort_price=Subquery(cheapest_sort_price_listing.values("sort_price")[:1]),
-            cheapest_final_price=Subquery(cheapest_price_listing.values("final_price")[:1]),
-            cheapest_original_price=Subquery(cheapest_price_listing.values("original_price")[:1]),
-            cheapest_final_unit_price=Subquery(cheapest_price_listing.values("final_unit_price")[:1]),
+            cheapest_final_price=Subquery(cheapest_price_listing.values("effective_final_price")[:1]),
+            cheapest_original_price=Subquery(
+                cheapest_price_listing.values("effective_original_price")[:1]
+            ),
+            cheapest_final_unit_price=Subquery(
+                cheapest_price_listing.values("effective_final_unit_price")[:1]
+            ),
             cheapest_original_unit_price=Subquery(
-                cheapest_price_listing.values("original_unit_price")[:1]
+                cheapest_price_listing.values("effective_original_unit_price")[:1]
             ),
             cheapest_store_name=Subquery(cheapest_price_listing.values("store__name")[:1]),
             cheapest_unit_of_measure=Subquery(
@@ -555,6 +681,7 @@ def product_list(request):
             one_plus_one=bool(getattr(product, "cheapest_one_plus_one", False)),
             two_plus_one=bool(getattr(product, "cheapest_two_plus_one", False)),
         )
+        _set_product_display_prices(product, price_profile=selected_price_profile)
 
     stores = (
         Store.objects.filter(listings__is_active=True)
@@ -585,12 +712,17 @@ def product_list(request):
             "available_categories": available_categories,
             "selected_category_slug": selected_category_slug,
             "search_query": search_query,
+            "price_profile_options": PRICE_PROFILE_OPTIONS,
+            "selected_price_profile": selected_price_profile,
+            "selected_price_profile_meta": selected_price_profile_meta,
+            "selected_price_profile_query": _selected_price_profile_query(selected_price_profile),
             "pagination_pages": pagination_pages,
             "selected_filters_query": _selected_filters_query(
                 store_ids=selected_store_ids,
                 offer_filters=selected_offer_filters,
                 category_filter=selected_category_filter,
                 search_query=search_query,
+                price_profile=selected_price_profile,
             ),
             "selected_category_filter": selected_category_filter,
         },
@@ -598,23 +730,34 @@ def product_list(request):
 
 
 def product_detail(request, product_id: int):
+    selected_price_profile = parse_price_profile(request.GET.get(PRICE_PROFILE_PARAM))
+    selected_price_profile_meta = get_price_profile(selected_price_profile)
     product = get_object_or_404(Product.objects.select_related("category"), id=product_id)
     listings = (
         StoreListing.objects.select_related("store")
         .filter(product=product, is_active=True)
         .order_by("store__name", "store_name")
     )
+    listing_rows = list(listings)
+    for listing in listing_rows:
+        _set_listing_display_prices(listing, price_profile=selected_price_profile)
     return render(
         request,
         "comparison/product_detail.html",
         {
             "product": product,
-            "listings": listings,
+            "listings": listing_rows,
+            "price_profile_options": PRICE_PROFILE_OPTIONS,
+            "selected_price_profile": selected_price_profile,
+            "selected_price_profile_meta": selected_price_profile_meta,
+            "selected_price_profile_query": _selected_price_profile_query(selected_price_profile),
         },
     )
 
 
 def product_offers(request, product_id: int):
+    selected_price_profile = parse_price_profile(request.GET.get(PRICE_PROFILE_PARAM))
+    selected_price_profile_meta = get_price_profile(selected_price_profile)
     product = get_object_or_404(Product, id=product_id)
     listings = (
         StoreListing.objects.select_related("store")
@@ -636,6 +779,13 @@ def product_offers(request, product_id: int):
             "quantity_unit": product.quantity_unit,
             "normalized_key": product.normalized_key,
         },
+        "price_profile": {
+            "key": selected_price_profile or None,
+            "label": selected_price_profile_meta.label if selected_price_profile_meta else None,
+            "description": (
+                selected_price_profile_meta.description if selected_price_profile_meta else None
+            ),
+        },
         "offers": [
             {
                 "store": listing.store.name,
@@ -653,8 +803,56 @@ def product_offers(request, product_id: int):
                     if listing.original_unit_price is not None
                     else None
                 ),
+                "effective_final_price": (
+                    str(
+                        apply_price_profile_value(
+                            listing.final_price,
+                            store_name=listing.store.name,
+                            price_profile=selected_price_profile,
+                        )
+                    )
+                    if listing.final_price is not None
+                    else None
+                ),
+                "effective_final_unit_price": (
+                    str(
+                        apply_price_profile_value(
+                            listing.final_unit_price,
+                            store_name=listing.store.name,
+                            price_profile=selected_price_profile,
+                        )
+                    )
+                    if listing.final_unit_price is not None
+                    else None
+                ),
+                "effective_original_price": (
+                    str(
+                        apply_price_profile_value(
+                            listing.original_price,
+                            store_name=listing.store.name,
+                            price_profile=selected_price_profile,
+                        )
+                    )
+                    if listing.original_price is not None
+                    else None
+                ),
+                "effective_original_unit_price": (
+                    str(
+                        apply_price_profile_value(
+                            listing.original_unit_price,
+                            store_name=listing.store.name,
+                            price_profile=selected_price_profile,
+                        )
+                    )
+                    if listing.original_unit_price is not None
+                    else None
+                ),
                 "unit_of_measure": listing.unit_of_measure,
                 "offer": listing.offer,
+                "price_profile_applies": price_profile_applies_to_store(
+                    store_name=listing.store.name,
+                    price_profile=selected_price_profile,
+                ),
                 "last_updated": listing.last_seen_at.isoformat(),
             }
             for listing in listings

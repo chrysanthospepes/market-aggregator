@@ -14,13 +14,30 @@
       <a href="{% url 'home' %}" class="home-link">Home</a>
       <form method="get" action="{% url 'product-list' %}" class="nav-search-form">
         <input type="search" name="q" placeholder="Search products or listing names">
+        {% if selected_price_profile %}
+          <input type="hidden" name="price_profile" value="{{ selected_price_profile }}">
+        {% endif %}
         <button type="submit">Search</button>
       </form>
     </nav>
 
     <p class="backline">
-      <a href="{% url 'product-list' %}" class="back-link">Back to products</a>
+      <a href="{% url 'product-list' %}{% if selected_price_profile_query %}?{{ selected_price_profile_query }}{% endif %}" class="back-link">Back to products</a>
     </p>
+
+    <div class="price-profile-panel">
+      <form method="get" action="" class="price-profile-form">
+        <label for="detail-price-profile">Pricing</label>
+        <select id="detail-price-profile" name="price_profile" onchange="this.form.submit()">
+          {% for value, label in price_profile_options %}
+            <option value="{{ value }}" {% if selected_price_profile == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <noscript>
+          <button type="submit">Apply</button>
+        </noscript>
+      </form>
+    </div>
 
     <section class="detail-header">
       <div class="title-wrap">
@@ -61,10 +78,25 @@
               <tr>
                 <td>{{ listing.store.name }}</td>
                 <td>{{ listing.store_name }}</td>
-                <td>{% if listing.final_price %}{{ listing.final_price|floatformat:2 }}€{% else %}-{% endif %}</td>
                 <td>
-                  {% if listing.final_unit_price %}
-                    {{ listing.final_unit_price|floatformat:2 }}€{% if listing.unit_of_measure == "kilos" %}/κιλό{% elif listing.unit_of_measure == "liters" %}/λίτρο{% else %}/τεμάχιο{% endif %}
+                  {% if listing.display_final_price is not None %}
+                    {{ listing.display_final_price|floatformat:2 }}€
+                    {% if listing.display_original_price is not None and listing.display_original_price > listing.display_final_price %}
+                      <span class="old-price"><s>{{ listing.display_original_price|floatformat:2 }}€</s></span>
+                    {% endif %}
+                    {% if selected_price_profile and listing.price_profile_applies %}
+                      <div class="price-adjustment-note">Includes profile discount</div>
+                    {% endif %}
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
+                <td>
+                  {% if listing.display_final_unit_price is not None %}
+                    {{ listing.display_final_unit_price|floatformat:2 }}€{% if listing.unit_of_measure == "kilos" %}/κιλό{% elif listing.unit_of_measure == "liters" %}/λίτρο{% else %}/τεμάχιο{% endif %}
+                    {% if listing.display_original_unit_price is not None and listing.display_original_unit_price > listing.display_final_unit_price %}
+                      <span class="old-price"><s>{{ listing.display_original_unit_price|floatformat:2 }}€{% if listing.unit_of_measure == "kilos" %}/κιλό{% elif listing.unit_of_measure == "liters" %}/λίτρο{% else %}/τεμάχιο{% endif %}</s></span>
+                    {% endif %}
                   {% else %}
                     -
                   {% endif %}

@@ -8,6 +8,10 @@
   margin: 0 0 0.8rem;
 }
 
+.price-profile-panel {
+  margin-bottom: 1rem;
+}
+
 .back-link {
   display: inline-flex;
   align-items: center;
