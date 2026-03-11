@@ -9,10 +9,15 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from selectolax.parser import HTMLParser
 
 from catalog.models import Category, CategoryAlias, Product, Store
 from comparison.models import MatchReview
 from crawlers import CRAWLER_MODULES, CRAWLER_RUN_ORDER
+from crawlers.sklavenitis.sklavenitis_category_listing import (
+    detect_unit_of_measure,
+    parse_listing_article,
+)
 from ingestion.models import CrawlerRun, PriceHistory, StoreListing
 from ingestion.services.importer import import_rows_for_store
 
@@ -25,6 +30,36 @@ class CrawlerRegistryTests(TestCase):
             self.assertTrue(callable(getattr(crawler, "to_category_slug", None)))
             self.assertTrue(callable(getattr(crawler, "to_category_url", None)))
             self.assertTrue(callable(getattr(crawler, "crawl_category_listing", None)))
+
+
+class SklavenitisCrawlerParsingTests(TestCase):
+    def test_detect_unit_of_measure_recognizes_kilo_abbreviation(self):
+        self.assertEqual(detect_unit_of_measure("/κιλ"), "kilos")
+
+    def test_main_price_unit_only_card_keeps_unit_price_when_analytics_has_pack_price(self):
+        tree = HTMLParser(
+            """
+            <div
+              data-plugin-analyticsimpressions='{"Call":{"ecommerce":{"items":[{"item_id":"sku-1","item_name":"Test product","item_brand":"Brand","price":"0,16"}]}}}'
+            >
+              <a class="absLink" href="/test-product"></a>
+              <div class="priceWrp">
+                <div class="main-price">
+                  <span class="price">0,62 €</span>
+                  <span>/κιλ</span>
+                </div>
+              </div>
+            </div>
+            """
+        )
+        article = tree.css_first("div[data-plugin-analyticsimpressions]")
+
+        row = parse_listing_article(article, "freska-froyta-lachanika")
+
+        self.assertIsNotNone(row)
+        self.assertAlmostEqual(row.final_price, 0.16, places=2)
+        self.assertAlmostEqual(row.final_unit_price, 0.62, places=2)
+        self.assertEqual(row.unit_of_measure, "kilos")
 
 
 class RunAllDailyIngestionCommandTests(TestCase):
