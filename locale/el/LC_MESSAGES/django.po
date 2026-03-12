@@ -1,0 +1,335 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-12 10:57+0000\n"
+"PO-Revision-Date: 2026-03-12 13:10+0200\n"
+"Last-Translator: Codex <codex@example.com>\n"
+"Language-Team: Greek <el@example.com>\n"
+"Language: el\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: comparison/pricing.py:27
+msgid "Kritikos -10%"
+msgstr "Κρητικός -10%"
+
+#: comparison/pricing.py:29
+msgid ""
+"Applies an extra 10% to Kritikos listings only, on top of any existing store "
+"discounts."
+msgstr "Εφαρμόζει επιπλέον 10% μόνο στις καταχωρίσεις του Κρητικού, πάνω από τυχόν υπάρχουσες εκπτώσεις καταστήματος."
+
+#: comparison/pricing.py:37
+msgid "Standard pricing"
+msgstr "Τυπική τιμολόγηση"
+
+#: comparison/templates/comparison/_language_switcher.html:3
+msgid "Language switcher"
+msgstr "Εναλλαγή γλώσσας"
+
+#: comparison/templates/comparison/home.html:8
+msgid "Store Offers"
+msgstr "Προσφορές καταστημάτων"
+
+#: comparison/templates/comparison/home.html:14
+#: comparison/templates/comparison/product_detail.html:14
+#: comparison/templates/comparison/product_list.html:13
+msgid "Primary"
+msgstr "Κύρια πλοήγηση"
+
+#: comparison/templates/comparison/home.html:15
+#: comparison/templates/comparison/product_detail.html:15
+#: comparison/templates/comparison/product_list.html:14
+msgid "Home"
+msgstr "Αρχική"
+
+#: comparison/templates/comparison/home.html:17
+#: comparison/templates/comparison/product_detail.html:17
+#: comparison/templates/comparison/product_list.html:16
+msgid "Search products or listing names"
+msgstr "Αναζήτηση προϊόντων ή ονομασιών καταλόγου"
+
+#: comparison/templates/comparison/home.html:21
+#: comparison/templates/comparison/product_detail.html:21
+#: comparison/templates/comparison/product_list.html:34
+msgid "Search"
+msgstr "Αναζήτηση"
+
+#: comparison/templates/comparison/home.html:29
+#: comparison/templates/comparison/product_detail.html:32
+#: comparison/templates/comparison/product_list.html:45
+msgid "Pricing"
+msgstr "Τιμολόγηση"
+
+#: comparison/templates/comparison/home.html:37
+#: comparison/templates/comparison/product_detail.html:39
+#: comparison/templates/comparison/product_list.html:66
+#: comparison/templates/comparison/product_list.html:131
+#: comparison/templates/comparison/product_list.html:165
+msgid "Apply"
+msgstr "Εφαρμογή"
+
+#: comparison/templates/comparison/home.html:41
+#: comparison/templates/comparison/product_list.html:71
+msgid "Category"
+msgstr "Κατηγορία"
+
+#: comparison/templates/comparison/home.html:42
+msgid "Category filter"
+msgstr "Φίλτρο κατηγορίας"
+
+#: comparison/templates/comparison/home.html:43
+#: comparison/templates/comparison/product_list.html:87
+msgid "All categories"
+msgstr "Όλες οι κατηγορίες"
+
+#: comparison/templates/comparison/home.html:63
+#, python-format
+msgid "Scroll %(store_name)s products left"
+msgstr "Κύλιση προϊόντων του %(store_name)s προς τα αριστερά"
+
+#: comparison/templates/comparison/home.html:73
+#: comparison/templates/comparison/product_list.html:273
+msgid "Offer badge"
+msgstr "Σήμα προσφοράς"
+
+#: comparison/templates/comparison/home.html:76
+#: comparison/templates/comparison/product_list.html:280
+#, python-format
+msgid "%(store_name)s logo"
+msgstr "Λογότυπο %(store_name)s"
+
+#: comparison/templates/comparison/home.html:81
+msgid "No image available"
+msgstr "Δεν υπάρχει διαθέσιμη εικόνα"
+
+#: comparison/templates/comparison/home.html:98
+#: comparison/templates/comparison/home.html:100
+#: comparison/templates/comparison/product_detail.html:98
+#: comparison/templates/comparison/product_detail.html:100
+#: comparison/templates/comparison/product_list.html:307
+#: comparison/templates/comparison/product_list.html:312
+msgid "/kg"
+msgstr "/κιλό"
+
+#: comparison/templates/comparison/home.html:98
+#: comparison/templates/comparison/home.html:100
+#: comparison/templates/comparison/product_detail.html:98
+#: comparison/templates/comparison/product_detail.html:100
+#: comparison/templates/comparison/product_list.html:307
+#: comparison/templates/comparison/product_list.html:312
+msgid "/liter"
+msgstr "/λίτρο"
+
+#: comparison/templates/comparison/home.html:98
+#: comparison/templates/comparison/home.html:100
+#: comparison/templates/comparison/product_detail.html:98
+#: comparison/templates/comparison/product_detail.html:100
+#: comparison/templates/comparison/product_list.html:307
+#: comparison/templates/comparison/product_list.html:312
+msgid "/piece"
+msgstr "/τεμάχιο"
+
+#: comparison/templates/comparison/home.html:116
+#, python-format
+msgid "Scroll %(store_name)s products right"
+msgstr "Κύλιση προϊόντων του %(store_name)s προς τα δεξιά"
+
+#: comparison/templates/comparison/home.html:124
+msgid "No products found for this category."
+msgstr "Δεν βρέθηκαν προϊόντα για αυτή την κατηγορία."
+
+#: comparison/templates/comparison/product_detail.html:27
+msgid "Back to products"
+msgstr "Επιστροφή στα προϊόντα"
+
+#: comparison/templates/comparison/product_detail.html:48
+msgid "Category:"
+msgstr "Κατηγορία:"
+
+#: comparison/templates/comparison/product_detail.html:69
+msgid "Store"
+msgstr "Κατάστημα"
+
+#: comparison/templates/comparison/product_detail.html:70
+msgid "Listing Name"
+msgstr "Όνομα καταχώρισης"
+
+#: comparison/templates/comparison/product_detail.html:71
+msgid "Final Price"
+msgstr "Τελική τιμή"
+
+#: comparison/templates/comparison/product_detail.html:72
+msgid "Unit Price"
+msgstr "Τιμή μονάδας"
+
+#: comparison/templates/comparison/product_detail.html:73
+#: comparison/templates/comparison/product_detail.html:116
+msgid "Offer"
+msgstr "Προσφορά"
+
+#: comparison/templates/comparison/product_detail.html:74
+msgid "Last Seen"
+msgstr "Τελευταία εμφάνιση"
+
+#: comparison/templates/comparison/product_detail.html:75
+msgid "Link"
+msgstr "Σύνδεσμος"
+
+#: comparison/templates/comparison/product_detail.html:90
+msgid "Includes profile discount"
+msgstr "Περιλαμβάνει έκπτωση προφίλ"
+
+#: comparison/templates/comparison/product_detail.html:124
+msgid "Open"
+msgstr "Άνοιγμα"
+
+#: comparison/templates/comparison/product_detail.html:135
+msgid "No active listings linked to this product."
+msgstr "Δεν υπάρχουν ενεργές καταχωρίσεις συνδεδεμένες με αυτό το προϊόν."
+
+#: comparison/templates/comparison/product_list.html:8
+msgid "Products"
+msgstr "Προϊόντα"
+
+#: comparison/templates/comparison/product_list.html:36
+msgid "Clear search"
+msgstr "Καθαρισμός αναζήτησης"
+
+#: comparison/templates/comparison/product_list.html:41
+msgid "Available Products"
+msgstr "Διαθέσιμα προϊόντα"
+
+#: comparison/templates/comparison/product_list.html:95
+msgid "Go"
+msgstr "Μετάβαση"
+
+#: comparison/templates/comparison/product_list.html:99
+msgid "Filter by store"
+msgstr "Φίλτρο ανά κατάστημα"
+
+#: comparison/templates/comparison/product_list.html:132
+#: comparison/templates/comparison/product_list.html:166
+msgid "Clear"
+msgstr "Καθαρισμός"
+
+#: comparison/templates/comparison/product_list.html:136
+msgid "Offer filter"
+msgstr "Φίλτρο προσφοράς"
+
+#: comparison/templates/comparison/product_list.html:175
+msgid "Sort:"
+msgstr "Ταξινόμηση:"
+
+#: comparison/templates/comparison/product_list.html:184
+msgid "Apply sort"
+msgstr "Εφαρμογή ταξινόμησης"
+
+#: comparison/templates/comparison/product_list.html:204
+msgid "Products pagination"
+msgstr "Σελιδοποίηση προϊόντων"
+
+#: comparison/templates/comparison/product_list.html:205
+#: comparison/templates/comparison/product_list.html:327
+#, python-format
+msgid "Page %(page_number)s of %(total_pages)s"
+msgstr "Σελίδα %(page_number)s από %(total_pages)s"
+
+#: comparison/templates/comparison/product_list.html:212
+#: comparison/templates/comparison/product_list.html:334
+msgid "Previous page"
+msgstr "Προηγούμενη σελίδα"
+
+#: comparison/templates/comparison/product_list.html:238
+#: comparison/templates/comparison/product_list.html:360
+msgid "Next page"
+msgstr "Επόμενη σελίδα"
+
+#: comparison/templates/comparison/product_list.html:248
+#: comparison/templates/comparison/product_list.html:383
+msgid "Go to"
+msgstr "Μετάβαση σε"
+
+#: comparison/templates/comparison/product_list.html:258
+#: comparison/templates/comparison/product_list.html:393
+msgid "Page"
+msgstr "Σελίδα"
+
+#: comparison/templates/comparison/product_list.html:287
+msgid "No image"
+msgstr "Δεν υπάρχει εικόνα"
+
+#: comparison/templates/comparison/product_list.html:318
+#, python-format
+msgid "%(store_count)s store"
+msgid_plural "%(store_count)s stores"
+msgstr[0] "%(store_count)s κατάστημα"
+msgstr[1] "%(store_count)s καταστήματα"
+
+#: comparison/templates/comparison/product_list.html:326
+msgid "Products pagination bottom"
+msgstr "Σελιδοποίηση προϊόντων στο κάτω μέρος"
+
+#: comparison/templates/comparison/product_list.html:369
+msgid "Go to page"
+msgstr "Μετάβαση σε σελίδα"
+
+#: comparison/templates/comparison/product_list.html:398
+msgid "No products available yet."
+msgstr "Δεν υπάρχουν ακόμη διαθέσιμα προϊόντα."
+
+#: comparison/views.py:46
+msgid "Relevance"
+msgstr "Συνάφεια"
+
+#: comparison/views.py:47
+msgid "Increasing price"
+msgstr "Αύξουσα τιμή"
+
+#: comparison/views.py:48
+msgid "Declining price"
+msgstr "Φθίνουσα τιμή"
+
+#: comparison/views.py:49
+msgid "Increasing unit price"
+msgstr "Αύξουσα τιμή μονάδας"
+
+#: comparison/views.py:50
+msgid "Declining unit price"
+msgstr "Φθίνουσα τιμή μονάδας"
+
+#: comparison/views.py:51
+msgid "Declining discount"
+msgstr "Φθίνουσα έκπτωση"
+
+#: comparison/views.py:54
+msgid "No offer"
+msgstr "Χωρίς προσφορά"
+
+#: comparison/views.py:55
+msgid "Up to 20%"
+msgstr "Έως 20%"
+
+#: comparison/views.py:56
+msgid "From 21% up to 40%"
+msgstr "Από 21% έως 40%"
+
+#: comparison/views.py:57
+msgid "From 41% up to max"
+msgstr "Από 41% και πάνω"
+
+#: config/settings.py:124
+msgid "English"
+msgstr "Αγγλικά"
+
+#: config/settings.py:125
+msgid "Greek"
+msgstr "Ελληνικά"

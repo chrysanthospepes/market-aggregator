@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.db.models import Case, DecimalField, ExpressionWrapper, F, Value, When
+from django.utils.translation import gettext_lazy as _
 
 PRICE_PROFILE_PARAM = "price_profile"
 DEFAULT_PRICE_PROFILE = ""
@@ -23,10 +24,9 @@ class PriceProfile:
 PRICE_PROFILES: dict[str, PriceProfile] = {
     KRITIKOS_ELIGIBLE_HOUSEHOLD_PROFILE: PriceProfile(
         key=KRITIKOS_ELIGIBLE_HOUSEHOLD_PROFILE,
-        label="Kritikos -10%",
+        label=_("Kritikos -10%"),
         description=(
-            "Applies an extra 10% to Kritikos listings only, on top of any existing store "
-            "discounts."
+            _("Applies an extra 10% to Kritikos listings only, on top of any existing store discounts.")
         ),
         store_name="kritikos",
         multiplier=Decimal("0.90"),
@@ -34,7 +34,7 @@ PRICE_PROFILES: dict[str, PriceProfile] = {
 }
 
 PRICE_PROFILE_OPTIONS: tuple[tuple[str, str], ...] = (
-    (DEFAULT_PRICE_PROFILE, "Standard pricing"),
+    (DEFAULT_PRICE_PROFILE, _("Standard pricing")),
     (
         KRITIKOS_ELIGIBLE_HOUSEHOLD_PROFILE,
         PRICE_PROFILES[KRITIKOS_ELIGIBLE_HOUSEHOLD_PROFILE].label,

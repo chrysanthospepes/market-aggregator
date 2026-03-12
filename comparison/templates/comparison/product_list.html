@@ -1,18 +1,19 @@
+{% load static i18n %}
+{% get_current_language as LANGUAGE_CODE %}
 <!doctype html>
-<html lang="en">
+<html lang="{{ LANGUAGE_CODE }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Products</title>
-  {% load static %}
+  <title>{% trans "Products" %}</title>
   <link rel="stylesheet" href="{% static 'comparison/css/common.css' %}">
   <link rel="stylesheet" href="{% static 'comparison/css/product_list.css' %}">
 </head>
 <body>
-  <nav class="top-nav" aria-label="Primary">
-    <a href="{% url 'home' %}" class="home-link">Home</a>
+  <nav class="top-nav" aria-label="{% trans 'Primary' %}">
+    <a href="{% url 'home' %}" class="home-link">{% trans "Home" %}</a>
     <form method="get" action="" class="search-form nav-search-form">
-      <input type="search" name="q" value="{{ search_query }}" placeholder="Search products or listing names">
+      <input type="search" name="q" value="{{ search_query }}" placeholder="{% trans 'Search products or listing names' %}">
       {% if selected_price_profile %}
         <input type="hidden" name="price_profile" value="{{ selected_price_profile }}">
       {% endif %}
@@ -30,17 +31,18 @@
       {% for store_id in selected_store_ids %}
         <input type="hidden" name="stores" value="{{ store_id }}">
       {% endfor %}
-      <button type="submit">Search</button>
+      <button type="submit">{% trans "Search" %}</button>
       {% if search_query %}
-        <a href="?sort={{ sort }}{% if selected_price_profile %}&price_profile={{ selected_price_profile }}{% endif %}{% if selected_category_filter %}&category={{ selected_category_filter }}{% endif %}{% for offer_filter in selected_offer_filters %}&offer_filter={{ offer_filter }}{% endfor %}{% for store_id in selected_store_ids %}&stores={{ store_id }}{% endfor %}">Clear search</a>
+        <a href="?sort={{ sort }}{% if selected_price_profile %}&price_profile={{ selected_price_profile }}{% endif %}{% if selected_category_filter %}&category={{ selected_category_filter }}{% endif %}{% for offer_filter in selected_offer_filters %}&offer_filter={{ offer_filter }}{% endfor %}{% for store_id in selected_store_ids %}&stores={{ store_id }}{% endfor %}">{% trans "Clear search" %}</a>
       {% endif %}
     </form>
+    {% include "comparison/_language_switcher.html" %}
   </nav>
-  <h1>Available Products</h1>
+  <h1>{% trans "Available Products" %}</h1>
   <div class="layout">
     <aside class="sidebar">
       <div class="price-profile-panel">
-        <h2>Pricing</h2>
+        <h2>{% trans "Pricing" %}</h2>
         <form method="get" action="" class="price-profile-form">
           {% if search_query %}
             <input type="hidden" name="q" value="{{ search_query }}">
@@ -61,12 +63,12 @@
             {% endfor %}
           </select>
           <noscript>
-            <button type="submit">Apply</button>
+            <button type="submit">{% trans "Apply" %}</button>
           </noscript>
         </form>
       </div>
       <div class="category-picker">
-        <h2>Category</h2>
+        <h2>{% trans "Category" %}</h2>
         <form method="get" action="">
           {% if search_query %}
             <input type="hidden" name="q" value="{{ search_query }}">
@@ -82,7 +84,7 @@
             <input type="hidden" name="stores" value="{{ store_id }}">
           {% endfor %}
           <select id="category-select" name="category" onchange="this.form.submit()">
-            <option value="">All categories</option>
+            <option value="">{% trans "All categories" %}</option>
             {% for category in available_categories %}
               <option value="{{ category.slug }}" {% if selected_category_slug == category.slug %}selected{% endif %}>
                 {{ category.name }}
@@ -90,11 +92,11 @@
             {% endfor %}
           </select>
           <noscript>
-            <button type="submit">Go</button>
+            <button type="submit">{% trans "Go" %}</button>
           </noscript>
         </form>
       </div>
-      <h2>Filter by store</h2>
+      <h2>{% trans "Filter by store" %}</h2>
       <form method="get" action="">
         {% if search_query %}
           <input type="hidden" name="q" value="{{ search_query }}">
@@ -126,12 +128,12 @@
           {% endfor %}
         </div>
         <div class="filter-actions">
-          <button type="submit">Apply</button>
-          <a href="?sort={{ sort }}{% if selected_price_profile %}&price_profile={{ selected_price_profile }}{% endif %}{% if search_query %}&q={{ search_query|urlencode }}{% endif %}{% if selected_category_filter %}&category={{ selected_category_filter }}{% endif %}{% for offer_filter in selected_offer_filters %}&offer_filter={{ offer_filter }}{% endfor %}">Clear</a>
+          <button type="submit">{% trans "Apply" %}</button>
+          <a href="?sort={{ sort }}{% if selected_price_profile %}&price_profile={{ selected_price_profile }}{% endif %}{% if search_query %}&q={{ search_query|urlencode }}{% endif %}{% if selected_category_filter %}&category={{ selected_category_filter }}{% endif %}{% for offer_filter in selected_offer_filters %}&offer_filter={{ offer_filter }}{% endfor %}">{% trans "Clear" %}</a>
         </div>
       </form>
       <div class="offer-options">
-        <h2>Offer filter</h2>
+        <h2>{% trans "Offer filter" %}</h2>
         <form method="get" action="">
           {% if search_query %}
             <input type="hidden" name="q" value="{{ search_query }}">
@@ -160,8 +162,8 @@
             {% endfor %}
           </div>
           <div class="filter-actions">
-            <button type="submit">Apply</button>
-            <a href="?sort={{ sort }}{% if selected_price_profile %}&price_profile={{ selected_price_profile }}{% endif %}{% if search_query %}&q={{ search_query|urlencode }}{% endif %}{% if selected_category_filter %}&category={{ selected_category_filter }}{% endif %}{% for store_id in selected_store_ids %}&stores={{ store_id }}{% endfor %}">Clear</a>
+            <button type="submit">{% trans "Apply" %}</button>
+            <a href="?sort={{ sort }}{% if selected_price_profile %}&price_profile={{ selected_price_profile }}{% endif %}{% if search_query %}&q={{ search_query|urlencode }}{% endif %}{% if selected_category_filter %}&category={{ selected_category_filter }}{% endif %}{% for store_id in selected_store_ids %}&stores={{ store_id }}{% endfor %}">{% trans "Clear" %}</a>
           </div>
         </form>
       </div>
@@ -170,7 +172,7 @@
     <main class="main-content">
       <form method="get" action="" class="results-controls">
         <div class="results-sort">
-          <label for="sort-select">Sort:</label>
+          <label for="sort-select">{% trans "Sort:" %}</label>
           <div class="select-shell">
             <select id="sort-select" name="sort" onchange="this.form.submit()">
               {% for value, label in sort_options %}
@@ -179,7 +181,7 @@
             </select>
           </div>
           <noscript>
-            <button type="submit">Apply sort</button>
+            <button type="submit">{% trans "Apply sort" %}</button>
           </noscript>
         </div>
         {% if search_query %}
@@ -199,15 +201,15 @@
         {% endfor %}
 
         {% if page_obj.has_other_pages %}
-          <nav class="pagination pagination-inline" aria-label="Products pagination">
-            <span class="pagination-status">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+          <nav class="pagination pagination-inline" aria-label="{% trans 'Products pagination' %}">
+            <span class="pagination-status">{% blocktrans trimmed with page_number=page_obj.number total_pages=page_obj.paginator.num_pages %}Page {{ page_number }} of {{ total_pages }}{% endblocktrans %}</span>
 
             <div class="pagination-shell">
               {% if page_obj.has_previous %}
                 <a
                   class="page-arrow"
                   href="?sort={{ sort }}{{ selected_filters_query }}&page={{ page_obj.previous_page_number }}"
-                  aria-label="Previous page"
+                  aria-label="{% trans 'Previous page' %}"
                 >
                   &#8249;
                 </a>
@@ -233,7 +235,7 @@
                 <a
                   class="page-arrow"
                   href="?sort={{ sort }}{{ selected_filters_query }}&page={{ page_obj.next_page_number }}"
-                  aria-label="Next page"
+                  aria-label="{% trans 'Next page' %}"
                 >
                   &#8250;
                 </a>
@@ -243,7 +245,7 @@
             </div>
 
             <div class="pagination-go">
-              <span class="go-label">Go to</span>
+              <span class="go-label">{% trans "Go to" %}</span>
               <input
                 id="page-jump"
                 type="number"
@@ -253,7 +255,7 @@
                 inputmode="numeric"
                 onchange="this.form.submit()"
               >
-              <span class="go-label">Page</span>
+              <span class="go-label">{% trans "Page" %}</span>
             </div>
           </nav>
         {% endif %}
@@ -268,21 +270,21 @@
                   {% if product.sale_icon_url %}
                     <img
                       src="{{ product.sale_icon_url }}"
-                      alt="Offer badge"
+                      alt="{% trans 'Offer badge' %}"
                       class="image-badge sale-badge"
                     >
                   {% endif %}
                   {% if product.store_icon_url %}
                     <img
                       src="{{ product.store_icon_url }}"
-                      alt="{{ product.cheapest_store_name }} logo"
+                      alt="{% blocktrans trimmed with store_name=product.cheapest_store_name %}{{ store_name }} logo{% endblocktrans %}"
                       class="image-badge store-badge"
                     >
                   {% endif %}
                   {% if product.image %}
                     <img src="{{ product.image.url }}" alt="{{ product.canonical_name }}" class="product-image">
                   {% else %}
-                    <span>No image</span>
+                    <span>{% trans "No image" %}</span>
                   {% endif %}
                 </div>
                 <div class="content">
@@ -290,30 +292,30 @@
 
                   <p class="price-line">
                     {% if product.display_final_price is not None %}
-                      {{ product.display_final_price|floatformat:2 }}€
+                      {{ product.display_final_price|floatformat:"2u" }}€
                     {% else %}
                       -
                     {% endif %}
                     {% if product.display_original_price is not None and product.display_final_price is not None and product.display_original_price > product.display_final_price %}
-                      <span class="old-price"><s>{{ product.display_original_price|floatformat:2 }}€</s></span>
+                      <span class="old-price"><s>{{ product.display_original_price|floatformat:"2u" }}€</s></span>
                     {% endif %}
                   </p>
 
                   <p class="unit-price-line">
                     {% with uom=product.cheapest_unit_of_measure %}
                       {% if product.display_final_unit_price is not None %}
-                        {{ product.display_final_unit_price|floatformat:2 }}€{% if uom == "kilos" %}/κιλό{% elif uom == "liters" %}/λίτρο{% else %}/τεμάχιο{% endif %}
+                        {{ product.display_final_unit_price|floatformat:"2u" }}€{% if uom == "kilos" %}{% trans "/kg" %}{% elif uom == "liters" %}{% trans "/liter" %}{% else %}{% trans "/piece" %}{% endif %}
                       {% else %}
                         -
                       {% endif %}
                       {% if product.display_original_unit_price is not None and product.display_final_unit_price is not None and product.display_original_unit_price > product.display_final_unit_price %}
-                        <span class="old-price"><s>{{ product.display_original_unit_price|floatformat:2 }}€{% if uom == "kilos" %}/κιλό{% elif uom == "liters" %}/λίτρο{% else %}/τεμάχιο{% endif %}</s></span>
+                        <span class="old-price"><s>{{ product.display_original_unit_price|floatformat:"2u" }}€{% if uom == "kilos" %}{% trans "/kg" %}{% elif uom == "liters" %}{% trans "/liter" %}{% else %}{% trans "/piece" %}{% endif %}</s></span>
                       {% endif %}
                     {% endwith %}
                   </p>
 
                   <p class="stores-line">
-                    {{ product.active_listing_count }} store{{ product.active_listing_count|pluralize }}
+                    {% blocktrans count store_count=product.active_listing_count %}{{ store_count }} store{% plural %}{{ store_count }} stores{% endblocktrans %}
                   </p>
                 </div>
               </a>
@@ -321,15 +323,15 @@
           {% endfor %}
         </section>
         {% if page_obj.has_other_pages %}
-          <nav class="pagination pagination-bottom" aria-label="Products pagination bottom">
-            <span class="pagination-status">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+          <nav class="pagination pagination-bottom" aria-label="{% trans 'Products pagination bottom' %}">
+            <span class="pagination-status">{% blocktrans trimmed with page_number=page_obj.number total_pages=page_obj.paginator.num_pages %}Page {{ page_number }} of {{ total_pages }}{% endblocktrans %}</span>
 
             <div class="pagination-shell">
               {% if page_obj.has_previous %}
                 <a
                   class="page-arrow"
                   href="?sort={{ sort }}{{ selected_filters_query }}&page={{ page_obj.previous_page_number }}"
-                  aria-label="Previous page"
+                  aria-label="{% trans 'Previous page' %}"
                 >
                   &#8249;
                 </a>
@@ -355,7 +357,7 @@
                 <a
                   class="page-arrow"
                   href="?sort={{ sort }}{{ selected_filters_query }}&page={{ page_obj.next_page_number }}"
-                  aria-label="Next page"
+                  aria-label="{% trans 'Next page' %}"
                 >
                   &#8250;
                 </a>
@@ -364,7 +366,7 @@
               {% endif %}
             </div>
 
-            <form method="get" action="" class="pagination-go" aria-label="Go to page">
+            <form method="get" action="" class="pagination-go" aria-label="{% trans 'Go to page' %}">
               {% if search_query %}
                 <input type="hidden" name="q" value="{{ search_query }}">
               {% endif %}
@@ -378,7 +380,7 @@
               {% for store_id in selected_store_ids %}
                 <input type="hidden" name="stores" value="{{ store_id }}">
               {% endfor %}
-              <span class="go-label">Go to</span>
+              <span class="go-label">{% trans "Go to" %}</span>
               <input
                 id="page-jump-bottom"
                 type="number"
@@ -388,12 +390,12 @@
                 inputmode="numeric"
                 onchange="this.form.submit()"
               >
-              <span class="go-label">Page</span>
+              <span class="go-label">{% trans "Page" %}</span>
             </form>
           </nav>
         {% endif %}
       {% else %}
-        <p>No products available yet.</p>
+        <p>{% trans "No products available yet." %}</p>
       {% endif %}
     </main>
   </div>

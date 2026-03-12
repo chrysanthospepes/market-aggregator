@@ -1,30 +1,32 @@
+{% load static i18n %}
+{% get_current_language as LANGUAGE_CODE %}
 <!doctype html>
-<html lang="en">
+<html lang="{{ LANGUAGE_CODE }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Store Offers</title>
-  {% load static %}
+  <title>{% trans "Store Offers" %}</title>
   <link rel="stylesheet" href="{% static 'comparison/css/common.css' %}">
   <link rel="stylesheet" href="{% static 'comparison/css/home.css' %}">
 </head>
 <body>
   <div class="page">
-    <nav class="top-nav" aria-label="Primary">
-      <a href="{% url 'home' %}" class="home-link">Home</a>
+    <nav class="top-nav" aria-label="{% trans 'Primary' %}">
+      <a href="{% url 'home' %}" class="home-link">{% trans "Home" %}</a>
       <form method="get" action="{% url 'product-list' %}" class="nav-search-form">
-        <input type="search" name="q" placeholder="Search products or listing names">
+        <input type="search" name="q" placeholder="{% trans 'Search products or listing names' %}">
         {% if selected_price_profile %}
           <input type="hidden" name="price_profile" value="{{ selected_price_profile }}">
         {% endif %}
-        <button type="submit">Search</button>
+        <button type="submit">{% trans "Search" %}</button>
       </form>
+      {% include "comparison/_language_switcher.html" %}
     </nav>
 
     <div class="layout">
       <aside class="sidebar">
         <div class="price-profile-panel">
-          <h2>Pricing</h2>
+          <h2>{% trans "Pricing" %}</h2>
           <form method="get" action="" class="price-profile-form">
             <select id="home-price-profile" name="price_profile" onchange="this.form.submit()">
               {% for value, label in price_profile_options %}
@@ -32,13 +34,13 @@
               {% endfor %}
             </select>
             <noscript>
-              <button type="submit">Apply</button>
+              <button type="submit">{% trans "Apply" %}</button>
             </noscript>
           </form>
         </div>
-        <h2>Category</h2>
-        <nav class="category-list" aria-label="Category filter">
-          <a href="{% url 'product-list' %}{% if selected_price_profile_query %}?{{ selected_price_profile_query }}{% endif %}" class="category-link">All categories</a>
+        <h2>{% trans "Category" %}</h2>
+        <nav class="category-list" aria-label="{% trans 'Category filter' %}">
+          <a href="{% url 'product-list' %}{% if selected_price_profile_query %}?{{ selected_price_profile_query }}{% endif %}" class="category-link">{% trans "All categories" %}</a>
           {% for category in categories %}
             <a href="{% url 'product-list' %}?category={{ category.slug }}{% if selected_price_profile_query %}&{{ selected_price_profile_query }}{% endif %}" class="category-link">
               {{ category.name }}
@@ -58,7 +60,7 @@
                   class="carousel-btn"
                   data-row-id="store-row-{{ forloop.counter }}"
                   data-direction="left"
-                  aria-label="Scroll {{ section.store_display_name }} products left"
+                  aria-label="{% blocktrans trimmed with store_name=section.store_display_name %}Scroll {{ store_name }} products left{% endblocktrans %}"
                 >
                   &#8249;
                 </button>
@@ -68,34 +70,34 @@
                     <a href="{% url 'product-detail' listing.product_id %}{% if selected_price_profile_query %}?{{ selected_price_profile_query }}{% endif %}">
                       <div class="image-wrap">
                         {% if listing.sale_icon_url %}
-                          <img src="{{ listing.sale_icon_url }}" alt="Offer badge" class="image-badge sale-badge">
+                          <img src="{{ listing.sale_icon_url }}" alt="{% trans 'Offer badge' %}" class="image-badge sale-badge">
                         {% endif %}
                         {% if section.store_icon_url %}
-                          <img src="{{ section.store_icon_url }}" alt="{{ section.store_display_name }} logo" class="image-badge store-badge">
+                          <img src="{{ section.store_icon_url }}" alt="{% blocktrans trimmed with store_name=section.store_display_name %}{{ store_name }} logo{% endblocktrans %}" class="image-badge store-badge">
                         {% endif %}
                         {% if listing.product.image %}
                           <img src="{{ listing.product.image.url }}" alt="{{ listing.store_name }}" class="product-image">
                         {% else %}
-                          <span class="no-image">No image available</span>
+                          <span class="no-image">{% trans "No image available" %}</span>
                         {% endif %}
                       </div>
                       <div class="content">
                         <h3 class="product-name">{{ listing.store_name }}</h3>
                         <p class="price-line">
                           {% if listing.display_final_price is not None %}
-                            {{ listing.display_final_price|floatformat:2 }}€
+                            {{ listing.display_final_price|floatformat:"2u" }}€
                           {% else %}
                             -
                           {% endif %}
                           {% if listing.display_original_price is not None and listing.display_final_price is not None and listing.display_original_price > listing.display_final_price %}
-                            <span class="old-price"><s>{{ listing.display_original_price|floatformat:2 }}€</s></span>
+                            <span class="old-price"><s>{{ listing.display_original_price|floatformat:"2u" }}€</s></span>
                           {% endif %}
                         </p>
                         <p class="unit-price-line">
                           {% if listing.display_final_unit_price is not None %}
-                            {{ listing.display_final_unit_price|floatformat:2 }}€{% if listing.unit_of_measure == "kilos" %}/κιλό{% elif listing.unit_of_measure == "liters" %}/λίτρο{% else %}/τεμάχιο{% endif %}
+                            {{ listing.display_final_unit_price|floatformat:"2u" }}€{% if listing.unit_of_measure == "kilos" %}{% trans "/kg" %}{% elif listing.unit_of_measure == "liters" %}{% trans "/liter" %}{% else %}{% trans "/piece" %}{% endif %}
                             {% if listing.display_original_unit_price is not None and listing.display_final_unit_price is not None and listing.display_original_unit_price > listing.display_final_unit_price %}
-                              <span class="old-price"><s>{{ listing.display_original_unit_price|floatformat:2 }}€{% if listing.unit_of_measure == "kilos" %}/κιλό{% elif listing.unit_of_measure == "liters" %}/λίτρο{% else %}/τεμάχιο{% endif %}</s></span>
+                              <span class="old-price"><s>{{ listing.display_original_unit_price|floatformat:"2u" }}€{% if listing.unit_of_measure == "kilos" %}{% trans "/kg" %}{% elif listing.unit_of_measure == "liters" %}{% trans "/liter" %}{% else %}{% trans "/piece" %}{% endif %}</s></span>
                             {% endif %}
                           {% else %}
                             -
@@ -111,7 +113,7 @@
                   class="carousel-btn"
                   data-row-id="store-row-{{ forloop.counter }}"
                   data-direction="right"
-                  aria-label="Scroll {{ section.store_display_name }} products right"
+                  aria-label="{% blocktrans trimmed with store_name=section.store_display_name %}Scroll {{ store_name }} products right{% endblocktrans %}"
                 >
                   &#8250;
                 </button>
@@ -119,7 +121,7 @@
             </section>
           {% endfor %}
         {% else %}
-          <p class="empty-state">No products found for this category.</p>
+          <p class="empty-state">{% trans "No products found for this category." %}</p>
         {% endif %}
       </main>
     </div>

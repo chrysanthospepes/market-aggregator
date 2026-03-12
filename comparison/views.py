@@ -24,6 +24,7 @@ from django.contrib.postgres.search import TrigramSimilarity
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils.http import urlencode
+from django.utils.translation import gettext_lazy as _
 
 from catalog.models import Category, Product, Store
 from catalog.search_normalizer import build_search_forms
@@ -42,18 +43,18 @@ HOME_PRODUCTS_PER_STORE = 20
 PRODUCTS_PER_PAGE = 20
 DEFAULT_SORT = "price_asc"
 SORT_OPTIONS: tuple[tuple[str, str], ...] = (
-    ("relevance", "Relevance"),
-    ("price_asc", "Increasing price"),
-    ("price_desc", "Declining price"),
-    ("unit_price_asc", "Increasing unit price"),
-    ("unit_price_desc", "Declining unit price"),
-    ("discount_desc", "Declining discount"),
+    ("relevance", _("Relevance")),
+    ("price_asc", _("Increasing price")),
+    ("price_desc", _("Declining price")),
+    ("unit_price_asc", _("Increasing unit price")),
+    ("unit_price_desc", _("Declining unit price")),
+    ("discount_desc", _("Declining discount")),
 )
 OFFER_FILTER_OPTIONS: tuple[tuple[str, str], ...] = (
-    ("no_offer", "No offer"),
-    ("discount_0_20", "Up to 20%"),
-    ("discount_21_40", "From 21% up to 40%"),
-    ("discount_41_plus", "From 41% up to max"),
+    ("no_offer", _("No offer")),
+    ("discount_0_20", _("Up to 20%")),
+    ("discount_21_40", _("From 21% up to 40%")),
+    ("discount_41_plus", _("From 41% up to max")),
     ("one_plus_one", "1 + 1"),
     ("two_plus_one", "2 + 1"),
 )

@@ -85,6 +85,24 @@ select {
   margin: 0;
 }
 
+.language-switcher {
+  justify-self: end;
+  display: inline-flex;
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.language-switcher button {
+  min-width: 3rem;
+  font-weight: 600;
+}
+
+.language-switcher button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  border-color: #9fb7d1;
+  color: var(--accent-strong);
+}
+
 .nav-search-form input[type="search"] {
   flex: 1 1 280px;
   min-width: 220px;
@@ -182,5 +200,10 @@ input[type="submit"]:hover {
 
   .nav-search-form {
     grid-column: 1;
+  }
+
+  .language-switcher {
+    grid-column: 1;
+    justify-self: start;
   }
 }

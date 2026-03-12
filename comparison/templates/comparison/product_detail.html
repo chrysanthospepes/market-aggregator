@@ -1,40 +1,42 @@
+{% load static i18n %}
+{% get_current_language as LANGUAGE_CODE %}
 <!doctype html>
-<html lang="en">
+<html lang="{{ LANGUAGE_CODE }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ product.canonical_name }}</title>
-  {% load static %}
   <link rel="stylesheet" href="{% static 'comparison/css/common.css' %}">
   <link rel="stylesheet" href="{% static 'comparison/css/product_detail.css' %}">
 </head>
 <body>
   <div class="detail-page">
-    <nav class="top-nav" aria-label="Primary">
-      <a href="{% url 'home' %}" class="home-link">Home</a>
+    <nav class="top-nav" aria-label="{% trans 'Primary' %}">
+      <a href="{% url 'home' %}" class="home-link">{% trans "Home" %}</a>
       <form method="get" action="{% url 'product-list' %}" class="nav-search-form">
-        <input type="search" name="q" placeholder="Search products or listing names">
+        <input type="search" name="q" placeholder="{% trans 'Search products or listing names' %}">
         {% if selected_price_profile %}
           <input type="hidden" name="price_profile" value="{{ selected_price_profile }}">
         {% endif %}
-        <button type="submit">Search</button>
+        <button type="submit">{% trans "Search" %}</button>
       </form>
+      {% include "comparison/_language_switcher.html" %}
     </nav>
 
     <p class="backline">
-      <a href="{% url 'product-list' %}{% if selected_price_profile_query %}?{{ selected_price_profile_query }}{% endif %}" class="back-link">Back to products</a>
+      <a href="{% url 'product-list' %}{% if selected_price_profile_query %}?{{ selected_price_profile_query }}{% endif %}" class="back-link">{% trans "Back to products" %}</a>
     </p>
 
     <div class="price-profile-panel">
       <form method="get" action="" class="price-profile-form">
-        <label for="detail-price-profile">Pricing</label>
+        <label for="detail-price-profile">{% trans "Pricing" %}</label>
         <select id="detail-price-profile" name="price_profile" onchange="this.form.submit()">
           {% for value, label in price_profile_options %}
             <option value="{{ value }}" {% if selected_price_profile == value %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
         <noscript>
-          <button type="submit">Apply</button>
+          <button type="submit">{% trans "Apply" %}</button>
         </noscript>
       </form>
     </div>
@@ -43,7 +45,7 @@
       <div class="title-wrap">
         <h1>{{ product.canonical_name }}</h1>
         <p class="meta">
-          Category:
+          {% trans "Category:" %}
           {% if product.category %}
             {{ product.category.name }} ({{ product.category.slug }})
           {% else %}
@@ -64,13 +66,13 @@
         <table>
           <thead>
             <tr>
-              <th>Store</th>
-              <th>Listing Name</th>
-              <th>Final Price</th>
-              <th>Unit Price</th>
-              <th>Offer</th>
-              <th>Last Seen</th>
-              <th>Link</th>
+              <th>{% trans "Store" %}</th>
+              <th>{% trans "Listing Name" %}</th>
+              <th>{% trans "Final Price" %}</th>
+              <th>{% trans "Unit Price" %}</th>
+              <th>{% trans "Offer" %}</th>
+              <th>{% trans "Last Seen" %}</th>
+              <th>{% trans "Link" %}</th>
             </tr>
           </thead>
           <tbody>
@@ -80,12 +82,12 @@
                 <td>{{ listing.store_name }}</td>
                 <td>
                   {% if listing.display_final_price is not None %}
-                    {{ listing.display_final_price|floatformat:2 }}€
+                    {{ listing.display_final_price|floatformat:"2u" }}€
                     {% if listing.display_original_price is not None and listing.display_original_price > listing.display_final_price %}
-                      <span class="old-price"><s>{{ listing.display_original_price|floatformat:2 }}€</s></span>
+                      <span class="old-price"><s>{{ listing.display_original_price|floatformat:"2u" }}€</s></span>
                     {% endif %}
                     {% if selected_price_profile and listing.price_profile_applies %}
-                      <div class="price-adjustment-note">Includes profile discount</div>
+                      <div class="price-adjustment-note">{% trans "Includes profile discount" %}</div>
                     {% endif %}
                   {% else %}
                     -
@@ -93,9 +95,9 @@
                 </td>
                 <td>
                   {% if listing.display_final_unit_price is not None %}
-                    {{ listing.display_final_unit_price|floatformat:2 }}€{% if listing.unit_of_measure == "kilos" %}/κιλό{% elif listing.unit_of_measure == "liters" %}/λίτρο{% else %}/τεμάχιο{% endif %}
+                    {{ listing.display_final_unit_price|floatformat:"2u" }}€{% if listing.unit_of_measure == "kilos" %}{% trans "/kg" %}{% elif listing.unit_of_measure == "liters" %}{% trans "/liter" %}{% else %}{% trans "/piece" %}{% endif %}
                     {% if listing.display_original_unit_price is not None and listing.display_original_unit_price > listing.display_final_unit_price %}
-                      <span class="old-price"><s>{{ listing.display_original_unit_price|floatformat:2 }}€{% if listing.unit_of_measure == "kilos" %}/κιλό{% elif listing.unit_of_measure == "liters" %}/λίτρο{% else %}/τεμάχιο{% endif %}</s></span>
+                      <span class="old-price"><s>{{ listing.display_original_unit_price|floatformat:"2u" }}€{% if listing.unit_of_measure == "kilos" %}{% trans "/kg" %}{% elif listing.unit_of_measure == "liters" %}{% trans "/liter" %}{% else %}{% trans "/piece" %}{% endif %}</s></span>
                     {% endif %}
                   {% else %}
                     -
@@ -111,7 +113,7 @@
                   {% elif listing.promo_text %}
                     {{ listing.promo_text }}
                   {% elif listing.offer %}
-                    Offer
+                    {% trans "Offer" %}
                   {% else %}
                     -
                   {% endif %}
@@ -119,7 +121,7 @@
                 <td>{{ listing.last_seen_at }}</td>
                 <td>
                   {% if listing.url %}
-                    <a href="{{ listing.url }}" target="_blank" rel="noopener noreferrer">Open</a>
+                    <a href="{{ listing.url }}" target="_blank" rel="noopener noreferrer">{% trans "Open" %}</a>
                   {% else %}
                     -
                   {% endif %}
@@ -130,7 +132,7 @@
         </table>
       </div>
     {% else %}
-      <p class="empty-state">No active listings linked to this product.</p>
+      <p class="empty-state">{% trans "No active listings linked to this product." %}</p>
     {% endif %}
   </div>
 </body>

@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.test import TestCase
 
 from decimal import Decimal
@@ -834,7 +835,34 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertContains(response, f'href="{reverse("home")}"')
         self.assertContains(response, f'action="{reverse("product-list")}"')
         self.assertContains(response, 'name="q"')
-        self.assertContains(response, "Search products or listing names")
+        self.assertContains(response, "Αναζήτηση προϊόντων ή ονομασιών καταλόγου")
+
+    def test_home_can_render_greek_translations(self):
+        response = self.client.get(reverse("home"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Αρχική")
+        self.assertContains(response, "Αναζήτηση")
+
+    def test_home_can_render_english_translations(self):
+        self.client.cookies[settings.LANGUAGE_COOKIE_NAME] = "en"
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Home")
+        self.assertContains(response, "Search")
+
+    def test_set_language_endpoint_sets_greek_language_cookie(self):
+        response = self.client.post(
+            reverse("set_language"),
+            {
+                "language": "el",
+                "next": reverse("home"),
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], reverse("home"))
+        self.assertEqual(response.cookies[settings.LANGUAGE_COOKIE_NAME].value, "el")
 
     def test_home_category_links_open_filtered_product_list(self):
         store = Store.objects.create(name="sklavenitis")
@@ -994,7 +1022,7 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertContains(response, "Αγγούρι Σκλαβενίτης")
         self.assertContains(response, "Αγγούρι Mymarket")
         self.assertNotContains(response, "Αγγούρι inactive")
-        self.assertContains(response, "Back to products")
+        self.assertContains(response, "Επιστροφή στα προϊόντα")
 
     def test_product_detail_unit_price_shows_unit_suffix(self):
         store = Store.objects.create(name="sklavenitis")
@@ -1090,7 +1118,7 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertContains(response, "1.80€")
         self.assertContains(response, "<s>2.25€</s>", html=True)
         self.assertContains(response, "1.95€")
-        self.assertContains(response, "Includes profile discount", count=1)
+        self.assertContains(response, "Περιλαμβάνει έκπτωση προφίλ", count=1)
 
     def test_product_list_can_sort_by_lowest_final_unit_price(self):
         store = Store.objects.create(name="sklavenitis")
@@ -1292,7 +1320,7 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertEqual(len(response.context["products"]), 20)
         self.assertEqual(response.context["page_obj"].number, 1)
         self.assertTrue(response.context["page_obj"].has_next())
-        self.assertContains(response, "Page 1 of 2")
+        self.assertContains(response, "Σελίδα 1 από 2")
         self.assertContains(response, "Product 001")
         self.assertContains(response, "Product 020")
         self.assertNotContains(response, "Product 021")
@@ -1312,7 +1340,7 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertEqual(len(response.context["products"]), 1)
         self.assertEqual(response.context["page_obj"].number, 2)
         self.assertTrue(response.context["page_obj"].has_previous())
-        self.assertContains(response, "Page 2 of 2")
+        self.assertContains(response, "Σελίδα 2 από 2")
         self.assertContains(response, "Product 021")
         self.assertNotContains(response, "Product 020")
 
@@ -1328,7 +1356,7 @@ class ComparisonHtmlViewsTests(TestCase):
         response = self.client.get(reverse("product-list"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Page 1 of 10")
+        self.assertContains(response, "Σελίδα 1 από 10")
         self.assertContains(response, 'class="page-ellipsis"')
         self.assertContains(response, 'page=5">5</a>')
         self.assertContains(response, 'page=10">10</a>')
@@ -1372,7 +1400,7 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertEqual(set(response.context["selected_store_ids"]), {store_a.id})
         filtered_both = next(p for p in response.context["products"] if p.id == product_both.id)
         self.assertEqual(filtered_both.active_listing_count, 2)
-        self.assertContains(response, "2 stores")
+        self.assertContains(response, "2 καταστήματα")
         self.assertContains(response, f'value="{store_a.id}"')
         self.assertEqual(response.context["sort"], "price_asc")
         self.assertIn(f"&stores={store_a.id}", response.context["selected_filters_query"])
@@ -1400,7 +1428,7 @@ class ComparisonHtmlViewsTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'id="category-select"')
-        self.assertContains(response, "All categories")
+        self.assertContains(response, "Όλες οι κατηγορίες")
         self.assertContains(response, 'value="fruits"')
         self.assertContains(response, 'value="drinks"')
         self.assertNotContains(response, 'value="bakery"')
@@ -1417,7 +1445,7 @@ class ComparisonHtmlViewsTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'name="q"')
-        self.assertContains(response, "Search products or listing names")
+        self.assertContains(response, "Αναζήτηση προϊόντων ή ονομασιών καταλόγου")
 
     def test_product_list_shows_home_link_in_top_nav(self):
         store = Store.objects.create(name="sklavenitis")
@@ -1432,7 +1460,7 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'class="top-nav"')
         self.assertContains(response, f'href="{reverse("home")}"')
-        self.assertContains(response, "Home")
+        self.assertContains(response, "Αρχική")
 
     def test_product_list_can_search_by_product_name_using_greeklish(self):
         store = Store.objects.create(name="sklavenitis")
@@ -1755,7 +1783,7 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertContains(response_all, "2 + 1")
 
         response_store_a = self.client.get(reverse("product-list"), {"stores": [store_a.id]})
-        self.assertContains(response_store_a, "No offer")
+        self.assertContains(response_store_a, "Χωρίς προσφορά")
         self.assertNotContains(response_store_a, "2 + 1")
 
     def test_product_list_store_and_offer_filters_have_independent_clear_links(self):
@@ -1908,7 +1936,7 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertContains(response, "<s>2.10€</s>", html=True)
         self.assertContains(response, "1.23€/τεμάχιο")
         self.assertContains(response, "<s>1.90€/τεμάχιο</s>", html=True)
-        self.assertContains(response, "1 store")
+        self.assertContains(response, "1 κατάστημα")
 
     def test_product_list_card_shows_store_and_sale_badges_on_image(self):
         store = Store.objects.create(name="kritikos")
