@@ -267,7 +267,7 @@ def _pagination_page_tokens(*, current_page: int, total_pages: int) -> list[int 
 def home(request):
     selected_price_profile = parse_price_profile(request.GET.get(PRICE_PROFILE_PARAM))
     selected_price_profile_meta = get_price_profile(selected_price_profile)
-    categories = Category.objects.order_by("name")
+    categories = sorted(Category.objects.all(), key=lambda category: category.display_name.lower())
 
     stores = Store.objects.filter(listings__is_active=True).order_by("name").distinct()
     store_sections: list[dict[str, object]] = []
@@ -345,11 +345,12 @@ def product_list(request):
     category_listing_filter = Q(products__store_listings__is_active=True)
     if selected_store_ids:
         category_listing_filter &= Q(products__store_listings__store_id__in=selected_store_ids)
-    available_categories = (
+    available_categories = list(
         Category.objects.filter(category_listing_filter)
         .order_by("name")
         .distinct()
     )
+    available_categories.sort(key=lambda category: category.display_name.lower())
     selected_category_slug = selected_category_filter
     if selected_category_filter.isdigit():
         category_slug = (
@@ -777,6 +778,7 @@ def product_offers(request, product_id: int):
             "category": {
                 "id": product.category_id,
                 "name": product.category.name if product.category_id else None,
+                "display_name": product.category.display_name if product.category_id else None,
                 "slug": product.category.slug if product.category_id else None,
             },
             "quantity_value": str(product.quantity_value) if product.quantity_value is not None else None,

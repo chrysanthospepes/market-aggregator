@@ -17,17 +17,17 @@ DEFAULT_STORE_NAMES = (
 )
 
 DEFAULT_CATEGORIES = (
-    ("Φρούτα & Λαχανικά", "frouta-lachanika"),
-    ("Κρέατα & Ψάρια", "kreata-psaria"),
-    ("Είδη Ψυγείου", "eidi-psigeiou"),
-    ("Κατεψυγμένα", "katepsygmena"),
-    ("Αποθήκη Τροφίμων & Ξηρά Τροφή", "apothiki-trofimon-xira-trofi"),
-    ("Ποτά & Αλκοόλ", "pota-alkool"),
-    ("Προσωπική Φροντίδα", "prosopiki-frontida"),
-    ("Βρεφικά", "vrefika"),
-    ("Οικιακά & Καθαριότητα", "oikiaka-kathariotita"),
-    ("Κατοικίδια", "katoikidia"),
-    ("Διάφορα", "diafora"),
+    ("Φρούτα & Λαχανικά", "Fruits & Vegetables", "frouta-lachanika"),
+    ("Κρέατα & Ψάρια", "Meat & Fish", "kreata-psaria"),
+    ("Είδη Ψυγείου", "Chilled Foods", "eidi-psigeiou"),
+    ("Κατεψυγμένα", "Frozen Foods", "katepsygmena"),
+    ("Αποθήκη Τροφίμων & Ξηρά Τροφή", "Pantry & Dry Food", "apothiki-trofimon-xira-trofi"),
+    ("Ποτά & Αλκοόλ", "Drinks & Alcohol", "pota-alkool"),
+    ("Προσωπική Φροντίδα", "Personal Care", "prosopiki-frontida"),
+    ("Βρεφικά", "Baby", "vrefika"),
+    ("Οικιακά & Καθαριότητα", "Household & Cleaning", "oikiaka-kathariotita"),
+    ("Κατοικίδια", "Pets", "katoikidia"),
+    ("Διάφορα", "Miscellaneous", "diafora"),
 )
 
 DEFAULT_CATEGORY_ALIASES = (
@@ -171,7 +171,7 @@ def ensure_default_categories(*, force: bool = False) -> None:
 
     try:
         Category.objects.bulk_create(
-            [Category(name=name, slug=slug) for name, slug in DEFAULT_CATEGORIES],
+            [Category(name=name, name_en=name_en, slug=slug) for name, name_en, slug in DEFAULT_CATEGORIES],
             ignore_conflicts=True,
         )
     except (OperationalError, ProgrammingError):

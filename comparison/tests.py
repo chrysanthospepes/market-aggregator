@@ -851,6 +851,27 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertContains(response, "Home")
         self.assertContains(response, "Search")
 
+    def test_home_uses_english_category_names_when_language_cookie_set(self):
+        self.client.cookies[settings.LANGUAGE_COOKIE_NAME] = "en"
+        store = Store.objects.create(name="sklavenitis")
+        category = Category.objects.create(
+            name="Φρούτα & Λαχανικά",
+            name_en="Fruits & Vegetables",
+            slug="frouta-lachanika-home-en",
+        )
+        self._create_product_with_listing(
+            store=store,
+            category=category,
+            name="Apple home category",
+            sku="apple-home-category-en",
+        )
+
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Fruits &amp; Vegetables")
+        self.assertNotContains(response, "Φρούτα & Λαχανικά")
+
     def test_set_language_endpoint_sets_greek_language_cookie(self):
         response = self.client.post(
             reverse("set_language"),
@@ -1043,6 +1064,34 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertContains(response, "<td>ΑΒ Βασιλόπουλος</td>", html=True)
         self.assertNotContains(response, "<td>ab</td>", html=True)
         self.assertEqual(response.context["listings"][0].store_display_name, "ΑΒ Βασιλόπουλος")
+
+    def test_product_detail_uses_english_category_name_when_language_cookie_set(self):
+        self.client.cookies[settings.LANGUAGE_COOKIE_NAME] = "en"
+        store = Store.objects.create(name="sklavenitis")
+        category = Category.objects.create(
+            name="Φρούτα & Λαχανικά",
+            name_en="Fruits & Vegetables",
+            slug="frouta-lachanika-detail-en",
+        )
+        product = Product.objects.create(
+            canonical_name="English category detail product",
+            category=category,
+        )
+        StoreListing.objects.create(
+            store=store,
+            store_sku="detail-category-en",
+            store_name="English category detail listing",
+            url="https://example.com/detail-category-en",
+            final_price=Decimal("1.00"),
+            product=product,
+            is_active=True,
+        )
+
+        response = self.client.get(reverse("product-detail", args=[product.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Fruits &amp; Vegetables (frouta-lachanika-detail-en)")
+        self.assertNotContains(response, "Φρούτα & Λαχανικά")
 
     def test_product_detail_unit_price_shows_unit_suffix(self):
         store = Store.objects.create(name="sklavenitis")
@@ -1470,6 +1519,27 @@ class ComparisonHtmlViewsTests(TestCase):
             html=True,
         )
         self.assertEqual(response.context["stores"][0].display_name, "ΑΒ Βασιλόπουλος")
+
+    def test_product_list_category_dropdown_uses_english_name_when_language_cookie_set(self):
+        self.client.cookies[settings.LANGUAGE_COOKIE_NAME] = "en"
+        store = Store.objects.create(name="sklavenitis")
+        category = Category.objects.create(
+            name="Φρούτα & Λαχανικά",
+            name_en="Fruits & Vegetables",
+            slug="frouta-lachanika-list-en",
+        )
+        self._create_product_with_listing(
+            store=store,
+            category=category,
+            name="Apple list category",
+            sku="apple-list-category-en",
+        )
+
+        response = self.client.get(reverse("product-list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Fruits &amp; Vegetables")
+        self.assertNotContains(response, "Φρούτα & Λαχανικά")
 
     def test_product_list_shows_search_bar(self):
         store = Store.objects.create(name="sklavenitis")

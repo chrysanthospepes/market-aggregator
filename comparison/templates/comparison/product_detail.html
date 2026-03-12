@@ -47,7 +47,7 @@
         <p class="meta">
           {% trans "Category:" %}
           {% if product.category %}
-            {{ product.category.name }} ({{ product.category.slug }})
+            {{ product.category.display_name }} ({{ product.category.slug }})
           {% else %}
             -
           {% endif %}

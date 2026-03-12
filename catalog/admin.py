@@ -11,8 +11,8 @@ class StoreAdmin(admin.ModelAdmin):
 
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
-    search_fields = ["name", "slug"]
-    list_display = ["id", "name", "slug"]
+    search_fields = ["name", "name_en", "slug"]
+    list_display = ["id", "name", "name_en", "slug"]
     prepopulated_fields = {"slug": ("name",)}
 
 
@@ -33,6 +33,6 @@ class ProductAdmin(admin.ModelAdmin):
 
 @admin.register(CategoryAlias)
 class CategoryAliasAdmin(admin.ModelAdmin):
-    search_fields = ["source_slug", "category__name", "category__slug", "store__name"]
+    search_fields = ["source_slug", "category__name", "category__name_en", "category__slug", "store__name"]
     list_display = ["id", "store", "source_slug", "category"]
     list_filter = ["store", "category"]

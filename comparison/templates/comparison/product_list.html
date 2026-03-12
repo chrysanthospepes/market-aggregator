@@ -87,7 +87,7 @@
             <option value="">{% trans "All categories" %}</option>
             {% for category in available_categories %}
               <option value="{{ category.slug }}" {% if selected_category_slug == category.slug %}selected{% endif %}>
-                {{ category.name }}
+                {{ category.display_name }}
               </option>
             {% endfor %}
           </select>

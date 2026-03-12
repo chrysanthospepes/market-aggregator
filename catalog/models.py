@@ -1,5 +1,6 @@
 from django.db import models
 from django.db.models import Q
+from django.utils.translation import get_language
 
 from catalog.search_normalizer import build_search_text
 
@@ -32,6 +33,7 @@ class Store(models.Model):
 
 class Category(models.Model):
     name = models.CharField(max_length=128, unique=True)
+    name_en = models.CharField(max_length=128, blank=True, default="")
     slug = models.SlugField(max_length=128, unique=True)
 
     class Meta:
@@ -48,6 +50,13 @@ class Category(models.Model):
         ]
 
     def __str__(self) -> str:
+        return self.name
+
+    @property
+    def display_name(self) -> str:
+        language_code = (get_language() or "").lower()
+        if language_code.startswith("en") and self.name_en:
+            return self.name_en
         return self.name
 
 
