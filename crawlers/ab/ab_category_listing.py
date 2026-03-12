@@ -16,19 +16,19 @@ from selectolax.parser import HTMLParser
 BASE = "https://www.ab.gr"
 ROOT_CATEGORIES = [
     "el/eshop/Oporopoleio/c/001",
-    # "el/eshop/Fresko-Kreas-and-Psaria/c/002",
-    # "el/eshop/Galaktokomika-Fytika-Rofimata-and-Eidi-Psygeioy/c/003",
-    # "el/eshop/Tyria-Fytika-Anapliromata-and-Allantika/c/004",
-    # "el/eshop/Katepsygmena-trofima/c/005",
-    # "el/eshop/Artos-Zacharoplasteio/c/006",
-    # "el/eshop/Etoima-Geymata/c/007",
-    # "el/eshop/Kava-anapsyktika-nera-xiroi-karpoi/c/008",
-    # "el/eshop/Proino-snacking-and-rofimata/c/009",
-    # "el/eshop/Vasika-typopoiimena-trofima/c/010",
-    # "el/eshop/Ola-gia-to-moro/c/011",
-    # "el/eshop/Eidi-prosopikis-peripoiisis/c/012",
-    # "el/eshop/Katharistika-Chartika-and-eidi-spitioy/c/013",
-    # "el/eshop/Gia-katoikidia/c/014",
+    "el/eshop/Fresko-Kreas-and-Psaria/c/002",
+    "el/eshop/Galaktokomika-Fytika-Rofimata-and-Eidi-Psygeioy/c/003",
+    "el/eshop/Tyria-Fytika-Anapliromata-and-Allantika/c/004",
+    "el/eshop/Katepsygmena-trofima/c/005",
+    "el/eshop/Artos-Zacharoplasteio/c/006",
+    "el/eshop/Etoima-Geymata/c/007",
+    "el/eshop/Kava-anapsyktika-nera-xiroi-karpoi/c/008",
+    "el/eshop/Proino-snacking-and-rofimata/c/009",
+    "el/eshop/Vasika-typopoiimena-trofima/c/010",
+    "el/eshop/Ola-gia-to-moro/c/011",
+    "el/eshop/Eidi-prosopikis-peripoiisis/c/012",
+    "el/eshop/Katharistika-Chartika-and-eidi-spitioy/c/013",
+    "el/eshop/Gia-katoikidia/c/014",
 ]
 MAX_PAGES_PER_CATEGORY = 500
 SORT_PRODUCTS_FOR_CSV = True
