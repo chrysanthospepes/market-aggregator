@@ -234,7 +234,7 @@ For each eligible `StoreListing`, the matcher:
 
 ## Match Review Workflow
 
-Manual review is handled through Django admin on `MatchReview`.
+Manual review is handled through Django admin on `MatchReview` and through the staff review queue at `/reviews/pending/`.
 
 ### Approve
 

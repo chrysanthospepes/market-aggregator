@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from decimal import Decimal
@@ -2183,3 +2184,185 @@ class MatchReviewAdminTests(TestCase):
         self.assertIsNotNone(listing.product_id)
         self.assertNotIn(listing.product_id, [candidate.id, other_candidate.id])
         self.assertEqual(Product.objects.count(), initial_product_count + 1)
+
+
+class MatchReviewQueueViewTests(TestCase):
+    def setUp(self):
+        self.user_model = get_user_model()
+        self.staff_user = self.user_model.objects.create_user(
+            username="reviewer",
+            password="not-used",
+            is_staff=True,
+        )
+
+    def test_match_review_queue_requires_staff_user(self):
+        response = self.client.get(reverse("match-review-queue"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/admin/login/", response.headers["Location"])
+
+    def test_match_review_queue_renders_pending_reviews_with_market_context(self):
+        self.client.force_login(self.staff_user)
+        store = Store.objects.create(name="sklavenitis")
+        store_ab = Store.objects.create(name="ab")
+        category = Category.objects.create(name="Fruits", slug="fruits")
+        CategoryAlias.objects.create(
+            store=store,
+            source_slug="frouta-lachanika",
+            category=category,
+        )
+        listing = StoreListing.objects.create(
+            store=store,
+            store_sku="queue-listing",
+            store_name="Queue listing 425g",
+            store_brand="Fresh",
+            source_category="frouta-lachanika",
+            url="https://example.com/queue-listing",
+            final_price=Decimal("2.10"),
+            image_url="https://example.com/listing.png",
+        )
+        candidate = Product.objects.create(
+            canonical_name="Queue candidate 425g",
+            brand_normalized="fresh",
+            quantity_value=Decimal("425"),
+            quantity_unit="g",
+            category=category,
+            image="products/queue-candidate.png",
+        )
+        StoreListing.objects.create(
+            store=store_ab,
+            store_sku="candidate-ab",
+            store_name="Queue candidate AB",
+            url="https://example.com/candidate-ab",
+            final_price=Decimal("2.20"),
+            product=candidate,
+            is_active=True,
+        )
+        review = MatchReview.objects.create(
+            store_listing=listing,
+            candidate_product=candidate,
+            score=Decimal("0.8700"),
+            status=MatchReview.Status.PENDING,
+            notes=(
+                "name_similarity=0.910, token_sort=0.910, token_set=0.930, token_overlap=1.000, "
+                "shared_tokens=2, brand_score=1.000, quantity_score=1.000, category_score=1.000, "
+                "organic_score=1.000, organic_compatible=True, listing_is_organic=False, "
+                "product_is_organic=False, contradictory_tokens=False, listing_unique_tokens=0, "
+                "product_unique_tokens=0, resolved_category=True"
+            ),
+        )
+
+        response = self.client.get(reverse("match-review-queue"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Queue listing 425g")
+        self.assertContains(response, "Queue candidate 425g")
+        self.assertContains(response, "Queue candidate AB")
+        self.assertContains(response, "/media/products/queue-candidate.png")
+        entry = response.context["page_obj"].object_list[0]
+        self.assertEqual(entry["listing"].id, listing.id)
+        self.assertEqual(entry["resolved_category"].id, category.id)
+        self.assertEqual(entry["review_count"], 1)
+        self.assertEqual(entry["reviews"][0]["review"].id, review.id)
+        self.assertEqual(
+            entry["reviews"][0]["candidate_active_listings"][0].store_display_name,
+            "ΑΒ Βασιλόπουλος",
+        )
+        self.assertEqual(
+            entry["reviews"][0]["score_breakdown"][0]["label"],
+            "Name similarity",
+        )
+
+    def test_match_review_queue_approve_action_links_listing_and_rejects_other_candidates(self):
+        self.client.force_login(self.staff_user)
+        store = Store.objects.create(name="sklavenitis")
+        listing = StoreListing.objects.create(
+            store=store,
+            store_sku="approve-queue",
+            store_name="Approve listing",
+            source_category="frouta-lachanika",
+            url="https://example.com/approve-listing",
+            final_price=Decimal("1.10"),
+        )
+        candidate_a = Product.objects.create(canonical_name="Candidate A")
+        candidate_b = Product.objects.create(canonical_name="Candidate B")
+        review_a = MatchReview.objects.create(
+            store_listing=listing,
+            candidate_product=candidate_a,
+            score=Decimal("0.9100"),
+            status=MatchReview.Status.PENDING,
+        )
+        review_b = MatchReview.objects.create(
+            store_listing=listing,
+            candidate_product=candidate_b,
+            score=Decimal("0.8900"),
+            status=MatchReview.Status.PENDING,
+        )
+
+        response = self.client.post(
+            reverse("match-review-queue"),
+            {
+                "action": "approve",
+                "review_id": review_a.id,
+                "next": reverse("match-review-queue"),
+            },
+            follow=True,
+        )
+
+        listing.refresh_from_db()
+        review_a.refresh_from_db()
+        review_b.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(listing.product_id, candidate_a.id)
+        self.assertEqual(review_a.status, MatchReview.Status.APPROVED)
+        self.assertEqual(review_b.status, MatchReview.Status.REJECTED)
+        self.assertContains(response, "Approved 1 review")
+
+    def test_match_review_queue_reject_listing_action_creates_new_product(self):
+        self.client.force_login(self.staff_user)
+        store = Store.objects.create(name="mymarket")
+        listing = StoreListing.objects.create(
+            store=store,
+            store_sku="reject-queue",
+            store_name="Reject queue listing 425g",
+            store_brand="Fresh",
+            source_category="frouta-lachanika",
+            url="https://example.com/reject-queue",
+            final_price=Decimal("2.40"),
+        )
+        candidate_a = Product.objects.create(canonical_name="Existing candidate")
+        candidate_b = Product.objects.create(canonical_name="Other candidate")
+        MatchReview.objects.create(
+            store_listing=listing,
+            candidate_product=candidate_a,
+            score=Decimal("0.8800"),
+            status=MatchReview.Status.PENDING,
+        )
+        MatchReview.objects.create(
+            store_listing=listing,
+            candidate_product=candidate_b,
+            score=Decimal("0.8500"),
+            status=MatchReview.Status.PENDING,
+        )
+
+        response = self.client.post(
+            reverse("match-review-queue"),
+            {
+                "action": "reject_listing",
+                "listing_id": listing.id,
+                "next": reverse("match-review-queue"),
+            },
+            follow=True,
+        )
+
+        listing.refresh_from_db()
+        statuses = list(
+            MatchReview.objects.filter(store_listing=listing).values_list("status", flat=True)
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(statuses, [MatchReview.Status.REJECTED, MatchReview.Status.REJECTED])
+        self.assertIsNotNone(listing.product_id)
+        self.assertNotIn(listing.product_id, [candidate_a.id, candidate_b.id])
+        self.assertContains(response, "Rejected 2 pending review(s) and created 1 new product(s).")

@@ -54,6 +54,14 @@ select {
   backdrop-filter: blur(4px);
 }
 
+.nav-primary {
+  justify-self: start;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 .home-link {
   justify-self: start;
   border: 1px solid var(--border-strong);
@@ -72,6 +80,13 @@ select {
 .home-link:hover {
   background: var(--accent-soft);
   border-color: #9fb7d1;
+}
+
+.home-link[aria-current="page"],
+.review-link {
+  background: var(--accent-soft);
+  border-color: #9fb7d1;
+  color: var(--accent-strong);
 }
 
 .nav-search-form {
@@ -194,7 +209,7 @@ input[type="submit"]:hover {
     gap: 0.6rem;
   }
 
-  .home-link {
+  .nav-primary {
     grid-column: 1;
   }
 

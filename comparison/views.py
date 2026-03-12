@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
+from django.contrib import messages
+from django.contrib.admin.views.decorators import staff_member_required
 from django.conf import settings
 from django.core.paginator import Paginator
 from django.db import connection
@@ -14,6 +18,7 @@ from django.db.models import (
     Max,
     Min,
     OuterRef,
+    Prefetch,
     Q,
     Subquery,
     Value,
@@ -22,13 +27,15 @@ from django.db.models import (
 from django.db.models.functions import Coalesce, Greatest
 from django.contrib.postgres.search import TrigramSimilarity
 from django.http import JsonResponse
-from django.shortcuts import get_object_or_404, render
-from django.utils.http import urlencode
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from django.utils.http import urlencode, url_has_allowed_host_and_scheme
 from django.utils.translation import gettext_lazy as _
 
+from catalog.category_mapping import resolve_category_id_for_source
 from catalog.models import Category, Product, Store
 from catalog.search_normalizer import build_search_forms
-from ingestion.models import StoreListing
+from comparison.models import MatchReview
 from comparison.pricing import (
     PRICE_PROFILE_OPTIONS,
     PRICE_PROFILE_PARAM,
@@ -38,9 +45,12 @@ from comparison.pricing import (
     parse_price_profile,
     price_profile_applies_to_store,
 )
+from comparison.review_actions import approve_match_reviews, reject_match_reviews
+from ingestion.models import StoreListing
 
 HOME_PRODUCTS_PER_STORE = 20
 PRODUCTS_PER_PAGE = 20
+REVIEW_QUEUE_LISTINGS_PER_PAGE = 12
 DEFAULT_SORT = "price_asc"
 SORT_OPTIONS: tuple[tuple[str, str], ...] = (
     ("relevance", _("Relevance")),
@@ -65,6 +75,41 @@ STORE_DISPLAY_NAME_BY_KEY: dict[str, str] = {
     "masoutis": "Μασούτης",
     "mymarket": "My Market",
     "sklavenitis": "Σκλαβενίτης",
+}
+MATCH_REVIEW_NOTE_LABELS: dict[str, str] = {
+    "name_similarity": _("Name similarity"),
+    "token_sort": _("Token sort"),
+    "token_set": _("Token set"),
+    "token_overlap": _("Token overlap"),
+    "shared_tokens": _("Shared tokens"),
+    "brand_score": _("Brand"),
+    "quantity_score": _("Quantity"),
+    "category_score": _("Category"),
+    "organic_score": _("Organic"),
+    "organic_compatible": _("Organic compatible"),
+    "listing_is_organic": _("Listing organic"),
+    "product_is_organic": _("Product organic"),
+    "contradictory_tokens": _("Contradictory tokens"),
+    "listing_unique_tokens": _("Listing-only tokens"),
+    "product_unique_tokens": _("Product-only tokens"),
+    "resolved_category": _("Resolved category"),
+}
+MATCH_REVIEW_DECIMAL_KEYS = {
+    "name_similarity",
+    "token_sort",
+    "token_set",
+    "token_overlap",
+    "brand_score",
+    "quantity_score",
+    "category_score",
+    "organic_score",
+}
+MATCH_REVIEW_BOOLEAN_KEYS = {
+    "organic_compatible",
+    "listing_is_organic",
+    "product_is_organic",
+    "contradictory_tokens",
+    "resolved_category",
 }
 
 
@@ -865,3 +910,256 @@ def product_offers(request, product_id: int):
         ],
     }
     return JsonResponse(payload)
+
+
+def _format_decimal_compact(value: Decimal | None) -> str | None:
+    if value is None:
+        return None
+    text = format(value, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text
+
+
+def _product_quantity_label(product: Product | None) -> str | None:
+    if product is None or product.quantity_value is None or not product.quantity_unit:
+        return None
+    quantity_value = _format_decimal_compact(product.quantity_value)
+    if quantity_value is None:
+        return None
+    return f"{quantity_value} {product.quantity_unit}"
+
+
+def _listing_offer_label(listing: StoreListing) -> str | None:
+    if listing.one_plus_one:
+        return "1 + 1"
+    if listing.two_plus_one:
+        return "2 + 1"
+    if listing.discount_percent:
+        return f"-{listing.discount_percent}%"
+    if listing.promo_text:
+        return listing.promo_text
+    if listing.offer:
+        return str(_("Offer"))
+    return None
+
+
+def _parse_match_review_notes(notes: str) -> list[dict[str, str]]:
+    parsed: list[dict[str, str]] = []
+    for segment in (notes or "").split(", "):
+        if "=" not in segment:
+            continue
+        key, raw_value = segment.split("=", 1)
+        value = raw_value
+        if key in MATCH_REVIEW_DECIMAL_KEYS:
+            try:
+                value = f"{float(raw_value):.3f}"
+            except (TypeError, ValueError):
+                value = raw_value
+        elif key in MATCH_REVIEW_BOOLEAN_KEYS:
+            value = str(_("Yes")) if raw_value == "True" else str(_("No"))
+        parsed.append(
+            {
+                "key": key,
+                "label": MATCH_REVIEW_NOTE_LABELS.get(key, key.replace("_", " ").title()),
+                "value": value,
+            }
+        )
+    return parsed
+
+
+def _review_queue_filters_query(*, search_query: str, selected_store_id: int | None) -> str:
+    params: list[tuple[str, str]] = []
+    if search_query:
+        params.append(("q", search_query))
+    if selected_store_id is not None:
+        params.append(("store", str(selected_store_id)))
+    return urlencode(params)
+
+
+def _review_queue_redirect_target(request) -> str:
+    next_url = (request.POST.get("next") or "").strip()
+    if next_url and url_has_allowed_host_and_scheme(
+        url=next_url,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        return next_url
+    return reverse("match-review-queue")
+
+
+@staff_member_required(login_url="admin:login")
+def match_review_queue(request):
+    if request.method == "POST":
+        action = (request.POST.get("action") or "").strip()
+        redirect_target = _review_queue_redirect_target(request)
+
+        if action == "approve":
+            review = MatchReview.objects.filter(
+                id=request.POST.get("review_id"),
+                status=MatchReview.Status.PENDING,
+            ).first()
+            if review is None:
+                messages.error(request, "The selected review is no longer pending.")
+            else:
+                result = approve_match_reviews(MatchReview.objects.filter(pk=review.pk))
+                messages.success(
+                    request,
+                    "Approved "
+                    f"{result.approved} review and auto-rejected {result.auto_rejected} "
+                    "conflicting pending review(s).",
+                )
+            return redirect(redirect_target)
+
+        if action == "reject_listing":
+            queryset = MatchReview.objects.filter(
+                store_listing_id=request.POST.get("listing_id"),
+                status=MatchReview.Status.PENDING,
+            )
+            if not queryset.exists():
+                messages.error(request, "This listing no longer has pending reviews.")
+            else:
+                result = reject_match_reviews(queryset)
+                messages.success(
+                    request,
+                    f"Rejected {result.rejected} pending review(s) and created "
+                    f"{result.forced_new_products} new product(s).",
+                )
+            return redirect(redirect_target)
+
+        messages.error(request, "Unknown review action.")
+        return redirect(redirect_target)
+
+    search_query = (request.GET.get("q") or "").strip()
+    try:
+        selected_store_id = int(request.GET.get("store", "").strip() or "")
+    except (TypeError, ValueError):
+        selected_store_id = None
+    if selected_store_id is not None and selected_store_id <= 0:
+        selected_store_id = None
+
+    active_candidate_listings = (
+        StoreListing.objects.select_related("store")
+        .filter(is_active=True)
+        .order_by("store__name", "final_price", "store_name", "id")
+    )
+    review_queryset = MatchReview.objects.filter(status=MatchReview.Status.PENDING).select_related(
+        "store_listing__store",
+        "store_listing__product__category",
+        "candidate_product__category",
+    ).prefetch_related(
+        Prefetch(
+            "candidate_product__store_listings",
+            queryset=active_candidate_listings,
+            to_attr="review_queue_active_listings",
+        )
+    )
+
+    if selected_store_id is not None:
+        review_queryset = review_queryset.filter(store_listing__store_id=selected_store_id)
+    if search_query:
+        review_queryset = review_queryset.filter(
+            Q(store_listing__store_name__icontains=search_query)
+            | Q(store_listing__store_brand__icontains=search_query)
+            | Q(store_listing__source_category__icontains=search_query)
+            | Q(candidate_product__canonical_name__icontains=search_query)
+            | Q(candidate_product__brand_normalized__icontains=search_query)
+            | Q(candidate_product__category__name__icontains=search_query)
+            | Q(candidate_product__category__slug__icontains=search_query)
+        )
+
+    review_rows = list(review_queryset.order_by("store_listing_id", "-score", "id"))
+    groups_by_listing_id: dict[int, dict[str, object]] = {}
+    resolved_category_ids: set[int] = set()
+
+    for review in review_rows:
+        listing = review.store_listing
+        resolved_category_id = None
+        if listing.source_category:
+            resolved_category_id = resolve_category_id_for_source(
+                store_id=listing.store_id,
+                source_category=listing.source_category,
+            )
+        if resolved_category_id is not None:
+            resolved_category_ids.add(resolved_category_id)
+
+        entry = groups_by_listing_id.setdefault(
+            listing.id,
+            {
+                "listing": listing,
+                "listing_store_display_name": _store_display_name(listing.store.name),
+                "listing_store_icon_url": _store_icon_url(listing.store.name),
+                "listing_offer_label": _listing_offer_label(listing),
+                "listing_quantity_label": listing.unit_of_measure or None,
+                "resolved_category_id": resolved_category_id,
+                "current_product": listing.product,
+                "current_product_quantity": _product_quantity_label(listing.product),
+                "reviews": [],
+                "top_score": review.score,
+            },
+        )
+
+        candidate_product = review.candidate_product
+        candidate_active_listings = list(
+            getattr(candidate_product, "review_queue_active_listings", [])
+        )
+        for candidate_listing in candidate_active_listings:
+            candidate_listing.store_display_name = _store_display_name(candidate_listing.store.name)
+
+        entry["reviews"].append(
+            {
+                "review": review,
+                "candidate": candidate_product,
+                "candidate_quantity": _product_quantity_label(candidate_product),
+                "candidate_active_listings": candidate_active_listings,
+                "score_breakdown": _parse_match_review_notes(review.notes),
+            }
+        )
+
+    categories_by_id = {
+        category.id: category
+        for category in Category.objects.filter(id__in=resolved_category_ids)
+    }
+    queue_entries = list(groups_by_listing_id.values())
+    for entry in queue_entries:
+        entry["resolved_category"] = categories_by_id.get(entry["resolved_category_id"])
+        entry["review_count"] = len(entry["reviews"])
+
+    queue_entries.sort(key=lambda entry: (-entry["top_score"], entry["listing"].id))
+
+    paginator = Paginator(queue_entries, REVIEW_QUEUE_LISTINGS_PER_PAGE)
+    page_obj = paginator.get_page(request.GET.get("page"))
+
+    pending_store_filter = Q(listings__match_reviews__status=MatchReview.Status.PENDING)
+    stores = list(
+        Store.objects.filter(pending_store_filter)
+        .annotate(
+            pending_listing_count=Count(
+                "listings",
+                filter=pending_store_filter,
+                distinct=True,
+            ),
+        )
+        .order_by("name")
+    )
+    for store in stores:
+        store.display_name = _store_display_name(store.name)
+
+    filters_query = _review_queue_filters_query(
+        search_query=search_query,
+        selected_store_id=selected_store_id,
+    )
+
+    return render(
+        request,
+        "comparison/match_review_queue.html",
+        {
+            "page_obj": page_obj,
+            "stores": stores,
+            "search_query": search_query,
+            "selected_store_id": selected_store_id,
+            "filters_query": filters_query,
+            "visible_listing_count": len(queue_entries),
+            "visible_review_count": len(review_rows),
+        },
+    )
