@@ -51,6 +51,8 @@ class Command(BaseCommand):
                 snapshot_at=snapshot,
                 run_matcher=options["run_matcher"],
                 source_label=f"csv:{file_path.name}",
+                matcher_progress_every=100,
+                matcher_progress_callback=self.stdout.write if options["run_matcher"] else None,
             )
         except Exception as exc:  # pragma: no cover - surfaced as command error path
             raise CommandError(str(exc)) from exc

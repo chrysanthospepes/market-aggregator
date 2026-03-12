@@ -7,6 +7,7 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Optional
+from collections.abc import Callable
 
 from django.db import transaction
 from django.utils import timezone
@@ -209,6 +210,8 @@ def import_rows_for_store(
     snapshot_at: Optional[datetime] = None,
     run_matcher: bool = False,
     source_label: Optional[str] = None,
+    matcher_progress_every: Optional[int] = None,
+    matcher_progress_callback: Optional[Callable[[str], None]] = None,
 ) -> ImportSummary:
     snapshot = snapshot_at or timezone.now()
     summary = ImportSummary()
@@ -306,6 +309,8 @@ def import_rows_for_store(
             only_unmatched=False,
             include_inactive=False,
             reconsider_matched=True,
+            progress_every=matcher_progress_every,
+            progress_callback=matcher_progress_callback,
         )
         summary.matcher_processed = match_summary.processed
         summary.matcher_auto_matched = match_summary.auto_matched

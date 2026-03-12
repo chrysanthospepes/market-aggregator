@@ -117,6 +117,35 @@ class MatcherTests(TestCase):
         self.assertEqual(summary.created_products, 0)
         self.assertEqual(listing.product_id, product.id)
 
+    def test_matcher_can_emit_progress_updates(self):
+        listing_a = StoreListing.objects.create(
+            store=self.sklavenitis,
+            store_sku="progress-a",
+            store_name="Progress listing one",
+            url="https://example.com/progress-a",
+            final_price=Decimal("1.00"),
+        )
+        listing_b = StoreListing.objects.create(
+            store=self.sklavenitis,
+            store_sku="progress-b",
+            store_name="Progress listing two",
+            url="https://example.com/progress-b",
+            final_price=Decimal("1.10"),
+        )
+
+        messages: list[str] = []
+        summary = match_store_listings(
+            listing_ids=[listing_a.id, listing_b.id],
+            only_unmatched=True,
+            progress_every=1,
+            progress_callback=messages.append,
+        )
+
+        self.assertEqual(summary.processed, 2)
+        self.assertEqual(messages[0], "Matcher starting (total=2).")
+        self.assertTrue(any(message.startswith("Matcher progress: 1/2 processed") for message in messages))
+        self.assertTrue(any(message.startswith("Matcher progress: 2/2 processed") for message in messages))
+
     def test_no_brand_no_quantity_short_generic_name_does_not_auto_match(self):
         fruits = Category.objects.create(name="Φρούτα & Λαχανικά", slug="frouta-lachanika")
         CategoryAlias.objects.create(

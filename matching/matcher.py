@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+from time import monotonic
 from typing import Iterable, Optional
+from collections.abc import Callable
 
 from django.db import IntegrityError
 from django.db.models import Q
@@ -532,6 +534,8 @@ def match_store_listings(
     include_inactive: bool = False,
     limit: Optional[int] = None,
     reconsider_matched: bool = False,
+    progress_every: Optional[int] = None,
+    progress_callback: Optional[Callable[[str], None]] = None,
 ) -> MatchResult:
     queryset = StoreListing.objects.select_related("product", "store").order_by("id")
     if listing_ids is not None:
@@ -543,7 +547,29 @@ def match_store_listings(
     if limit is not None:
         queryset = queryset[:limit]
 
+    total = queryset.count()
     result = MatchResult()
+    started_at = monotonic()
+    effective_progress_every = progress_every if progress_every and progress_every > 0 else None
+
+    def emit_progress() -> None:
+        if progress_callback is None:
+            return
+        elapsed = monotonic() - started_at
+        progress_callback(
+            "Matcher progress: "
+            f"{result.processed}/{total} processed, auto={result.auto_matched}, "
+            f"review={result.review_created}, new_products={result.created_products}, "
+            f"elapsed={elapsed:.1f}s"
+        )
+
+    def maybe_emit_progress() -> None:
+        if effective_progress_every and result.processed % effective_progress_every == 0:
+            emit_progress()
+
+    if progress_callback is not None:
+        progress_callback(f"Matcher starting (total={total}).")
+
     for listing in queryset:
         result.processed += 1
         best = _best_candidate(listing, reconsider_matched=reconsider_matched)
@@ -553,42 +579,56 @@ def match_store_listings(
             if _should_auto_tier_a(best):
                 _set_listing_product(listing, best.product)
                 result.auto_matched += 1
+                maybe_emit_progress()
                 continue
 
             if _should_auto_tier_b(best):
                 _set_listing_product(listing, best.product)
                 result.auto_matched += 1
+                maybe_emit_progress()
                 continue
 
             if _should_auto_tier_c(best):
                 _set_listing_product(listing, best.product)
                 result.auto_matched += 1
+                maybe_emit_progress()
                 continue
 
             if _should_auto_tier_d(best):
                 _set_listing_product(listing, best.product)
                 result.auto_matched += 1
+                maybe_emit_progress()
                 continue
 
             if _should_auto_tier_e(best):
                 _set_listing_product(listing, best.product)
                 result.auto_matched += 1
+                maybe_emit_progress()
                 continue
 
             if _should_go_to_review(best):
                 if not (reconsider_matched and had_existing_product):
                     _create_review(listing, best)
                     result.review_created += 1
+                maybe_emit_progress()
                 continue
 
         # In reconsider mode, keep the current match unless we found a strong auto candidate above.
         if reconsider_matched and had_existing_product:
+            maybe_emit_progress()
             continue
 
         product, created = _create_or_get_product_for_listing(listing)
         _set_listing_product(listing, product)
         if created:
             result.created_products += 1
+
+        maybe_emit_progress()
+
+    if total and progress_callback is not None and (
+        effective_progress_every is None or result.processed % effective_progress_every != 0
+    ):
+        emit_progress()
 
     return result
 

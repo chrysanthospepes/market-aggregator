@@ -43,6 +43,12 @@ class Command(BaseCommand):
             type=int,
             help="Optional cap on number of processed listings.",
         )
+        parser.add_argument(
+            "--progress-every",
+            type=int,
+            default=100,
+            help="Print matcher progress after every N processed listings.",
+        )
 
     def handle(self, *args, **options):
         listing_ids = options.get("listing_id")
@@ -64,6 +70,8 @@ class Command(BaseCommand):
             include_inactive=options["include_inactive"],
             limit=options.get("limit"),
             reconsider_matched=options["reconsider_matched"],
+            progress_every=options["progress_every"],
+            progress_callback=self.stdout.write,
         )
 
         self.stdout.write(

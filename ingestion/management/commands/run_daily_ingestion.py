@@ -120,6 +120,8 @@ class Command(BaseCommand):
             snapshot_at=timezone.now(),
             run_matcher=options["run_matcher"],
             source_label=f"crawler:{store}",
+            matcher_progress_every=100,
+            matcher_progress_callback=self.stdout.write if options["run_matcher"] else None,
         )
 
         self.stdout.write(
