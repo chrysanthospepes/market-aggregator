@@ -1024,6 +1024,26 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertNotContains(response, "Αγγούρι inactive")
         self.assertContains(response, "Επιστροφή στα προϊόντα")
 
+    def test_product_detail_uses_display_name_for_known_store_key(self):
+        store = Store.objects.create(name="ab")
+        product = Product.objects.create(canonical_name="AB detail product")
+        StoreListing.objects.create(
+            store=store,
+            store_sku="ab-detail",
+            store_name="AB detail listing",
+            url="https://example.com/ab-detail",
+            final_price=Decimal("1.00"),
+            product=product,
+            is_active=True,
+        )
+
+        response = self.client.get(reverse("product-detail", args=[product.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "<td>ΑΒ Βασιλόπουλος</td>", html=True)
+        self.assertNotContains(response, "<td>ab</td>", html=True)
+        self.assertEqual(response.context["listings"][0].store_display_name, "ΑΒ Βασιλόπουλος")
+
     def test_product_detail_unit_price_shows_unit_suffix(self):
         store = Store.objects.create(name="sklavenitis")
         product = Product.objects.create(canonical_name="Milk 1L")
@@ -1432,6 +1452,24 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertContains(response, 'value="fruits"')
         self.assertContains(response, 'value="drinks"')
         self.assertNotContains(response, 'value="bakery"')
+
+    def test_product_list_store_filter_uses_display_name_for_known_store_key(self):
+        store = Store.objects.create(name="ab")
+        self._create_product_with_listing(
+            store=store,
+            name="AB filter product",
+            sku="ab-filter-product",
+        )
+
+        response = self.client.get(reverse("product-list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "<span>ΑΒ Βασιλόπουλος <span class=\"store-count\">(1)</span></span>",
+            html=True,
+        )
+        self.assertEqual(response.context["stores"][0].display_name, "ΑΒ Βασιλόπουλος")
 
     def test_product_list_shows_search_bar(self):
         store = Store.objects.create(name="sklavenitis")

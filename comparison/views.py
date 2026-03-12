@@ -204,6 +204,7 @@ def _selected_price_profile_query(price_profile: str) -> str:
 
 def _set_listing_display_prices(listing: StoreListing, *, price_profile: str) -> None:
     store_name = listing.store.name if getattr(listing, "store_id", None) else None
+    listing.store_display_name = _store_display_name(store_name)
     listing.display_final_price = apply_price_profile_value(
         listing.final_price,
         store_name=store_name,
@@ -684,7 +685,7 @@ def product_list(request):
         )
         _set_product_display_prices(product, price_profile=selected_price_profile)
 
-    stores = (
+    stores = list(
         Store.objects.filter(listings__is_active=True)
         .annotate(
             active_product_count=Count(
@@ -696,6 +697,8 @@ def product_list(request):
         .order_by("name")
         .distinct()
     )
+    for store in stores:
+        store.display_name = _store_display_name(store.name)
 
     return render(
         request,

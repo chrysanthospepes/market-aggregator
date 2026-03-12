@@ -78,7 +78,7 @@
           <tbody>
             {% for listing in listings %}
               <tr>
-                <td>{{ listing.store.name }}</td>
+                <td>{{ listing.store_display_name }}</td>
                 <td>{{ listing.store_name }}</td>
                 <td>
                   {% if listing.display_final_price is not None %}
