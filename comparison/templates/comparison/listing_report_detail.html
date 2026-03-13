@@ -1,0 +1,212 @@
+{% load static i18n %}
+{% get_current_language as LANGUAGE_CODE %}
+<!doctype html>
+<html lang="{{ LANGUAGE_CODE }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% trans "Review Listing Report" %}</title>
+  <link rel="stylesheet" href="{% static 'comparison/css/common.css' %}">
+  <link rel="stylesheet" href="{% static 'comparison/css/review_queue.css' %}">
+</head>
+<body>
+  <div class="review-page">
+    <nav class="top-nav" aria-label="{% trans 'Primary' %}">
+      <div class="nav-primary">
+        <a href="{% url 'home' %}" class="home-link">{% trans "Home" %}</a>
+        <a href="{% url 'match-review-queue' %}" class="home-link">{% trans "Review queue" %}</a>
+        <a href="{% url 'listing-report-queue' %}" class="home-link review-link">{% trans "Listing reports" %}</a>
+      </div>
+      <div class="nav-search-form nav-search-form--static">
+        <a href="{{ return_to }}" class="secondary-link">{% trans "Back to reports" %}</a>
+      </div>
+      {% include "comparison/_language_switcher.html" %}
+    </nav>
+
+    <header class="queue-header">
+      <div>
+        <p class="queue-kicker">{% trans "Listing report" %}</p>
+        <h1>{{ entry.listing.store_name }}</h1>
+        <p class="queue-subtitle">
+          {% blocktrans trimmed with count=entry.report.report_count last_seen=entry.report.last_reported_at %}
+            Reported {{ count }} time(s). Last report: {{ last_seen }}.
+          {% endblocktrans %}
+        </p>
+      </div>
+      <form method="post" class="entry-action">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="dismiss">
+        <input type="hidden" name="next" value="{{ return_to }}">
+        <button type="submit" class="danger-button">{% trans "Dismiss report" %}</button>
+      </form>
+    </header>
+
+    {% if messages %}
+      <ul class="message-list">
+        {% for message in messages %}
+          <li class="message message--{{ message.tags|default:'info' }}">{{ message }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+
+    <div class="entry-grid detail-entry-grid">
+      <article class="surface-card listing-panel">
+        <div class="panel-media">
+          {% if entry.listing.image_url %}
+            <img src="{{ entry.listing.image_url }}" alt="{{ entry.listing.store_name }}" class="listing-image">
+          {% else %}
+            <div class="listing-image placeholder">{% trans "No image" %}</div>
+          {% endif %}
+        </div>
+
+        <div class="panel-body">
+          <h3>{% trans "Reported listing" %}</h3>
+          <dl class="detail-list">
+            <div>
+              <dt>{% trans "Store" %}</dt>
+              <dd>{{ entry.listing_store_display_name }}</dd>
+            </div>
+            <div>
+              <dt>{% trans "Brand" %}</dt>
+              <dd>{{ entry.listing.store_brand|default:"-" }}</dd>
+            </div>
+            <div>
+              <dt>{% trans "Price" %}</dt>
+              <dd>
+                {% if entry.listing.final_price is not None %}
+                  {{ entry.listing.final_price|floatformat:"2u" }}€
+                {% else %}
+                  -
+                {% endif %}
+              </dd>
+            </div>
+            <div>
+              <dt>{% trans "Offer" %}</dt>
+              <dd>{{ entry.listing_offer_label|default:"-" }}</dd>
+            </div>
+            <div>
+              <dt>{% trans "Source category" %}</dt>
+              <dd>{{ entry.listing.source_category|default:"-" }}</dd>
+            </div>
+            <div>
+              <dt>{% trans "Resolved category" %}</dt>
+              <dd>
+                {% if entry.resolved_category %}
+                  {{ entry.resolved_category.display_name }} ({{ entry.resolved_category.slug }})
+                {% else %}
+                  -
+                {% endif %}
+              </dd>
+            </div>
+            <div>
+              <dt>{% trans "Listing link" %}</dt>
+              <dd>
+                {% if entry.listing.url %}
+                  <a href="{{ entry.listing.url }}" target="_blank" rel="noopener noreferrer">{% trans "Open listing" %}</a>
+                {% else %}
+                  -
+                {% endif %}
+              </dd>
+            </div>
+          </dl>
+        </div>
+      </article>
+
+      <article class="surface-card candidate-card">
+        <div class="panel-body">
+          <h3>{% trans "Current assignment" %}</h3>
+          {% if entry.current_product %}
+            <p class="linked-product-name">
+              <a href="{% url 'product-detail' entry.current_product.id %}">{{ entry.current_product.canonical_name }}</a>
+            </p>
+            <p class="linked-product-meta">
+              {% if entry.current_product.category %}
+                {{ entry.current_product.category.display_name }}
+              {% endif %}
+              {% if entry.current_product_quantity %}
+                {% if entry.current_product.category %} · {% endif %}
+                {{ entry.current_product_quantity }}
+              {% endif %}
+            </p>
+          {% else %}
+            <p class="empty-state compact-empty">{% trans "This listing is not currently linked to a product." %}</p>
+          {% endif %}
+
+          {% if entry.reported_product and entry.reported_product.id != entry.listing.product_id %}
+            <div class="linked-product">
+              <p class="linked-product-label">{% trans "Reported against" %}</p>
+              <p class="linked-product-name">
+                <a href="{% url 'product-detail' entry.reported_product.id %}">{{ entry.reported_product.canonical_name }}</a>
+              </p>
+              <p class="linked-product-meta">
+                {% if entry.reported_product.category %}
+                  {{ entry.reported_product.category.display_name }}
+                {% endif %}
+                {% if entry.reported_product_quantity %}
+                  {% if entry.reported_product.category %} · {% endif %}
+                  {{ entry.reported_product_quantity }}
+                {% endif %}
+              </p>
+            </div>
+          {% endif %}
+        </div>
+      </article>
+    </div>
+
+    <section class="surface-card candidate-search-panel">
+      <div class="panel-body">
+        <div class="candidate-search-header">
+          <div>
+            <p class="queue-kicker queue-kicker--inline">{% trans "Find replacement product" %}</p>
+            <h2>{% trans "Candidate products" %}</h2>
+          </div>
+          <form method="get" action="" class="candidate-search-form">
+            <input type="hidden" name="next" value="{{ return_to }}">
+            <input
+              type="search"
+              name="candidate_q"
+              value="{{ candidate_query }}"
+              placeholder="{% trans 'Search products by name or brand' %}"
+            >
+            <button type="submit">{% trans "Search" %}</button>
+          </form>
+        </div>
+
+        {% if candidate_products %}
+          <div class="candidate-stack">
+            {% for candidate in candidate_products %}
+              <article class="surface-card candidate-card candidate-card--compact">
+                <div class="candidate-header">
+                  <div class="candidate-overview">
+                    <div>
+                      <h3>{{ candidate.canonical_name }}</h3>
+                      <p class="candidate-meta">
+                        #{{ candidate.id }}
+                        {% if candidate.brand_normalized %} · {{ candidate.brand_normalized }}{% endif %}
+                        {% if candidate.quantity_label %} · {{ candidate.quantity_label }}{% endif %}
+                        {% if candidate.category %} · {{ candidate.category.display_name }}{% endif %}
+                      </p>
+                    </div>
+                  </div>
+                  <div class="candidate-actions">
+                    <a href="{% url 'product-detail' candidate.id %}" class="secondary-link">{% trans "Open product" %}</a>
+                    <form method="post">
+                      {% csrf_token %}
+                      <input type="hidden" name="action" value="reassign">
+                      <input type="hidden" name="target_product_id" value="{{ candidate.id }}">
+                      <input type="hidden" name="next" value="{{ return_to }}">
+                      <button type="submit">{% trans "Assign here" %}</button>
+                    </form>
+                  </div>
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="empty-state">{% trans "No candidate products matched the current search." %}</p>
+        {% endif %}
+      </div>
+    </section>
+  </div>
+</body>
+</html>

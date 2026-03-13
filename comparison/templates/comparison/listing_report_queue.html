@@ -1,0 +1,221 @@
+{% load static i18n %}
+{% get_current_language as LANGUAGE_CODE %}
+<!doctype html>
+<html lang="{{ LANGUAGE_CODE }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% trans "Listing Reports" %}</title>
+  <link rel="stylesheet" href="{% static 'comparison/css/common.css' %}">
+  <link rel="stylesheet" href="{% static 'comparison/css/review_queue.css' %}">
+</head>
+<body>
+  <div class="review-page">
+    <nav class="top-nav" aria-label="{% trans 'Primary' %}">
+      <div class="nav-primary">
+        <a href="{% url 'home' %}" class="home-link">{% trans "Home" %}</a>
+        <a href="{% url 'match-review-queue' %}" class="home-link">{% trans "Review queue" %}</a>
+        <a href="{% url 'listing-report-queue' %}" class="home-link review-link" aria-current="page">{% trans "Listing reports" %}</a>
+      </div>
+      <form method="get" action="" class="nav-search-form queue-filter-form">
+        <input
+          type="search"
+          name="q"
+          value="{{ search_query }}"
+          placeholder="{% trans 'Search listing, brand, or current product' %}"
+        >
+        <select name="store" aria-label="{% trans 'Store filter' %}">
+          <option value="">{% trans "All stores" %}</option>
+          {% for store in stores %}
+            <option value="{{ store.id }}" {% if selected_store_id == store.id %}selected{% endif %}>
+              {{ store.display_name }} ({{ store.pending_listing_count }})
+            </option>
+          {% endfor %}
+        </select>
+        <button type="submit">{% trans "Filter" %}</button>
+        {% if search_query or selected_store_id %}
+          <a href="{% url 'listing-report-queue' %}">{% trans "Clear" %}</a>
+        {% endif %}
+      </form>
+      {% include "comparison/_language_switcher.html" %}
+    </nav>
+
+    <header class="queue-header">
+      <div>
+        <p class="queue-kicker">{% trans "Pending listing reports" %}</p>
+        <h1>{% trans "Listing reports" %}</h1>
+        <p class="queue-subtitle">
+          {% blocktrans trimmed with count=visible_report_count %}
+            Showing {{ count }} pending reported listing(s).
+          {% endblocktrans %}
+        </p>
+      </div>
+      <div class="summary-strip" aria-label="{% trans 'Listing report summary' %}">
+        <div class="summary-card">
+          <span class="summary-label">{% trans "Pending reports" %}</span>
+          <strong>{{ visible_report_count }}</strong>
+        </div>
+      </div>
+    </header>
+
+    {% if messages %}
+      <ul class="message-list">
+        {% for message in messages %}
+          <li class="message message--{{ message.tags|default:'info' }}">{{ message }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+
+    {% if page_obj.object_list %}
+      <div class="queue-list">
+        {% for entry in page_obj.object_list %}
+          <section class="queue-entry">
+            <header class="entry-header">
+              <div>
+                <p class="entry-store">
+                  {% if entry.listing_store_icon_url %}
+                    <img src="{{ entry.listing_store_icon_url }}" alt="" class="store-mark" aria-hidden="true">
+                  {% endif %}
+                  <span>{{ entry.listing_store_display_name }}</span>
+                </p>
+                <h2>{{ entry.listing.store_name }}</h2>
+                <p class="entry-subtitle">
+                  {% blocktrans trimmed with count=entry.report.report_count last_seen=entry.report.last_reported_at %}
+                    Reported {{ count }} time(s) · last report {{ last_seen }}
+                  {% endblocktrans %}
+                </p>
+              </div>
+              <a
+                href="{% url 'listing-report-detail' entry.report.id %}?next={{ request.get_full_path|urlencode }}"
+                class="secondary-link"
+              >
+                {% trans "Review report" %}
+              </a>
+            </header>
+
+            <div class="entry-grid">
+              <article class="surface-card listing-panel">
+                <div class="panel-media">
+                  {% if entry.listing.image_url %}
+                    <img src="{{ entry.listing.image_url }}" alt="{{ entry.listing.store_name }}" class="listing-image">
+                  {% else %}
+                    <div class="listing-image placeholder">{% trans "No image" %}</div>
+                  {% endif %}
+                </div>
+
+                <div class="panel-body">
+                  <h3>{% trans "Reported listing" %}</h3>
+                  <dl class="detail-list">
+                    <div>
+                      <dt>{% trans "Store" %}</dt>
+                      <dd>{{ entry.listing_store_display_name }}</dd>
+                    </div>
+                    <div>
+                      <dt>{% trans "Brand" %}</dt>
+                      <dd>{{ entry.listing.store_brand|default:"-" }}</dd>
+                    </div>
+                    <div>
+                      <dt>{% trans "Price" %}</dt>
+                      <dd>
+                        {% if entry.listing.final_price is not None %}
+                          {{ entry.listing.final_price|floatformat:"2u" }}€
+                        {% else %}
+                          -
+                        {% endif %}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{% trans "Offer" %}</dt>
+                      <dd>{{ entry.listing_offer_label|default:"-" }}</dd>
+                    </div>
+                    <div>
+                      <dt>{% trans "Source category" %}</dt>
+                      <dd>{{ entry.listing.source_category|default:"-" }}</dd>
+                    </div>
+                    <div>
+                      <dt>{% trans "Resolved category" %}</dt>
+                      <dd>
+                        {% if entry.resolved_category %}
+                          {{ entry.resolved_category.display_name }} ({{ entry.resolved_category.slug }})
+                        {% else %}
+                          -
+                        {% endif %}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{% trans "Listing link" %}</dt>
+                      <dd>
+                        {% if entry.listing.url %}
+                          <a href="{{ entry.listing.url }}" target="_blank" rel="noopener noreferrer">{% trans "Open listing" %}</a>
+                        {% else %}
+                          -
+                        {% endif %}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+              </article>
+
+              <article class="surface-card candidate-card">
+                <div class="panel-body">
+                  <h3>{% trans "Current assignment" %}</h3>
+                  {% if entry.current_product %}
+                    <p class="linked-product-name">
+                      <a href="{% url 'product-detail' entry.current_product.id %}">{{ entry.current_product.canonical_name }}</a>
+                    </p>
+                    <p class="linked-product-meta">
+                      {% if entry.current_product.category %}
+                        {{ entry.current_product.category.display_name }}
+                      {% endif %}
+                      {% if entry.current_product_quantity %}
+                        {% if entry.current_product.category %} · {% endif %}
+                        {{ entry.current_product_quantity }}
+                      {% endif %}
+                    </p>
+                  {% else %}
+                    <p class="empty-state compact-empty">{% trans "This listing is not currently linked to a product." %}</p>
+                  {% endif %}
+
+                  {% if entry.reported_product and entry.reported_product.id != entry.listing.product_id %}
+                    <div class="linked-product">
+                      <p class="linked-product-label">{% trans "Reported against" %}</p>
+                      <p class="linked-product-name">
+                        <a href="{% url 'product-detail' entry.reported_product.id %}">{{ entry.reported_product.canonical_name }}</a>
+                      </p>
+                      <p class="linked-product-meta">
+                        {% if entry.reported_product.category %}
+                          {{ entry.reported_product.category.display_name }}
+                        {% endif %}
+                        {% if entry.reported_product_quantity %}
+                          {% if entry.reported_product.category %} · {% endif %}
+                          {{ entry.reported_product_quantity }}
+                        {% endif %}
+                      </p>
+                    </div>
+                  {% endif %}
+                </div>
+              </article>
+            </div>
+          </section>
+        {% endfor %}
+      </div>
+
+      {% if page_obj.has_other_pages %}
+        <nav class="queue-pagination" aria-label="{% trans 'Listing report pagination' %}">
+          <span>{% blocktrans trimmed with page=page_obj.number total=page_obj.paginator.num_pages %}Page {{ page }} of {{ total }}{% endblocktrans %}</span>
+          <div class="pagination-actions">
+            {% if page_obj.has_previous %}
+              <a href="?{% if filters_query %}{{ filters_query }}&{% endif %}page={{ page_obj.previous_page_number }}">{% trans "Previous" %}</a>
+            {% endif %}
+            {% if page_obj.has_next %}
+              <a href="?{% if filters_query %}{{ filters_query }}&{% endif %}page={{ page_obj.next_page_number }}">{% trans "Next" %}</a>
+            {% endif %}
+          </div>
+        </nav>
+      {% endif %}
+    {% else %}
+      <p class="empty-state">{% trans "No pending listing reports match the current filters." %}</p>
+    {% endif %}
+  </div>
+</body>
+</html>

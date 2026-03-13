@@ -9,7 +9,7 @@ from django.test import RequestFactory
 from django.urls import reverse
 from catalog.models import Category, CategoryAlias, Product, Store
 from comparison.admin import MatchReviewAdmin
-from comparison.models import MatchReview
+from comparison.models import ListingProductReport, MatchReview
 from comparison.pricing import (
     KRITIKOS_ELIGIBLE_HOUSEHOLD_PROFILE,
     PRICE_PROFILE_PARAM,
@@ -1074,6 +1074,73 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertContains(response, "Αγγούρι Mymarket")
         self.assertNotContains(response, "Αγγούρι inactive")
         self.assertContains(response, "Επιστροφή στα προϊόντα")
+
+    def test_product_detail_can_report_listing_for_admin_review(self):
+        store = Store.objects.create(name="sklavenitis")
+        product = Product.objects.create(canonical_name="Reported product")
+        listing = StoreListing.objects.create(
+            store=store,
+            store_sku="reported-listing",
+            store_name="Reported listing",
+            url="https://example.com/reported-listing",
+            final_price=Decimal("1.10"),
+            product=product,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            reverse("report-product-listing", args=[product.id]),
+            {
+                "listing_id": listing.id,
+                "next": reverse("product-detail", args=[product.id]),
+            },
+            follow=True,
+        )
+
+        report = ListingProductReport.objects.get(store_listing=listing)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(report.status, ListingProductReport.Status.PENDING)
+        self.assertEqual(report.reported_product_id, product.id)
+        self.assertEqual(report.report_count, 1)
+        self.assertContains(response, "The listing was reported for admin review.")
+
+    def test_product_detail_repeat_report_increases_pending_report_count(self):
+        store = Store.objects.create(name="mymarket")
+        product = Product.objects.create(canonical_name="Repeated report product")
+        listing = StoreListing.objects.create(
+            store=store,
+            store_sku="repeat-reported-listing",
+            store_name="Repeat reported listing",
+            url="https://example.com/repeat-reported-listing",
+            final_price=Decimal("1.20"),
+            product=product,
+            is_active=True,
+        )
+        ListingProductReport.objects.create(
+            store_listing=listing,
+            reported_product=product,
+            status=ListingProductReport.Status.PENDING,
+        )
+
+        response = self.client.post(
+            reverse("report-product-listing", args=[product.id]),
+            {
+                "listing_id": listing.id,
+                "next": reverse("product-detail", args=[product.id]),
+            },
+            follow=True,
+        )
+
+        report = ListingProductReport.objects.get(store_listing=listing)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(report.report_count, 2)
+        self.assertContains(
+            response,
+            "The listing was already pending review, and the report count was increased.",
+        )
+        self.assertContains(response, "Pending report (2)")
 
     def test_product_detail_uses_display_name_for_known_store_key(self):
         store = Store.objects.create(name="ab")
@@ -2366,3 +2433,131 @@ class MatchReviewQueueViewTests(TestCase):
         self.assertIsNotNone(listing.product_id)
         self.assertNotIn(listing.product_id, [candidate_a.id, candidate_b.id])
         self.assertContains(response, "Rejected 2 pending review(s) and created 1 new product(s).")
+
+
+class ListingReportQueueViewTests(TestCase):
+    def setUp(self):
+        self.user_model = get_user_model()
+        self.staff_user = self.user_model.objects.create_user(
+            username="listing-reviewer",
+            password="not-used",
+            is_staff=True,
+        )
+
+    def test_listing_report_queue_requires_staff_user(self):
+        response = self.client.get(reverse("listing-report-queue"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/admin/login/", response.headers["Location"])
+
+    def test_listing_report_queue_renders_pending_reports(self):
+        self.client.force_login(self.staff_user)
+        store = Store.objects.create(name="sklavenitis")
+        category = Category.objects.create(name="Fruits", slug="fruits-report-queue")
+        product = Product.objects.create(
+            canonical_name="Wrongly linked product",
+            category=category,
+        )
+        CategoryAlias.objects.create(
+            store=store,
+            source_slug="fruit-report-source",
+            category=category,
+        )
+        listing = StoreListing.objects.create(
+            store=store,
+            store_sku="reported-queue-listing",
+            store_name="Reported queue listing",
+            store_brand="Fresh",
+            source_category="fruit-report-source",
+            url="https://example.com/reported-queue-listing",
+            final_price=Decimal("1.50"),
+            product=product,
+        )
+        report = ListingProductReport.objects.create(
+            store_listing=listing,
+            reported_product=product,
+            report_count=3,
+        )
+
+        response = self.client.get(reverse("listing-report-queue"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Reported queue listing")
+        self.assertContains(response, "Wrongly linked product")
+        entry = response.context["page_obj"].object_list[0]
+        self.assertEqual(entry["report"].id, report.id)
+        self.assertEqual(entry["resolved_category"].id, category.id)
+        self.assertEqual(entry["listing_store_display_name"], "Σκλαβενίτης")
+
+    def test_listing_report_detail_reassigns_listing_to_selected_product(self):
+        self.client.force_login(self.staff_user)
+        store = Store.objects.create(name="mymarket")
+        wrong_product = Product.objects.create(canonical_name="Wrong product")
+        correct_product = Product.objects.create(canonical_name="Correct product")
+        listing = StoreListing.objects.create(
+            store=store,
+            store_sku="reassign-reported-listing",
+            store_name="Reassign reported listing",
+            url="https://example.com/reassign-reported-listing",
+            final_price=Decimal("1.40"),
+            product=wrong_product,
+        )
+        report = ListingProductReport.objects.create(
+            store_listing=listing,
+            reported_product=wrong_product,
+        )
+
+        response = self.client.post(
+            reverse("listing-report-detail", args=[report.id]),
+            {
+                "action": "reassign",
+                "target_product_id": correct_product.id,
+                "next": reverse("listing-report-queue"),
+            },
+            follow=True,
+        )
+
+        listing.refresh_from_db()
+        report.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(listing.product_id, correct_product.id)
+        self.assertEqual(report.status, ListingProductReport.Status.REASSIGNED)
+        self.assertEqual(report.reassigned_product_id, correct_product.id)
+        self.assertEqual(report.resolved_by_id, self.staff_user.id)
+        self.assertContains(response, "Correct product")
+
+    def test_listing_report_detail_can_dismiss_report(self):
+        self.client.force_login(self.staff_user)
+        store = Store.objects.create(name="ab")
+        product = Product.objects.create(canonical_name="Dismiss product")
+        listing = StoreListing.objects.create(
+            store=store,
+            store_sku="dismiss-reported-listing",
+            store_name="Dismiss reported listing",
+            url="https://example.com/dismiss-reported-listing",
+            final_price=Decimal("1.30"),
+            product=product,
+        )
+        report = ListingProductReport.objects.create(
+            store_listing=listing,
+            reported_product=product,
+        )
+
+        response = self.client.post(
+            reverse("listing-report-detail", args=[report.id]),
+            {
+                "action": "dismiss",
+                "next": reverse("listing-report-queue"),
+            },
+            follow=True,
+        )
+
+        listing.refresh_from_db()
+        report.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(listing.product_id, product.id)
+        self.assertEqual(report.status, ListingProductReport.Status.DISMISSED)
+        self.assertEqual(report.resolved_by_id, self.staff_user.id)
+        self.assertContains(response, "Dismissed the listing report.")

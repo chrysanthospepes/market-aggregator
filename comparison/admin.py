@@ -1,6 +1,7 @@
 from django.contrib import admin
+from django.db import transaction
 
-from comparison.models import MatchReview
+from comparison.models import ListingProductReport, MatchReview
 from comparison.review_actions import approve_match_reviews, reject_match_reviews
 
 
@@ -55,3 +56,30 @@ class MatchReviewAdmin(admin.ModelAdmin):
                 and obj.status == MatchReview.Status.REJECTED
             ):
                 reject_match_reviews(MatchReview.objects.filter(pk=obj.pk))
+
+
+@admin.register(ListingProductReport)
+class ListingProductReportAdmin(admin.ModelAdmin):
+    list_display = [
+        "id",
+        "store_listing",
+        "reported_product",
+        "reassigned_product",
+        "status",
+        "report_count",
+        "last_reported_at",
+        "resolved_by",
+    ]
+    list_filter = ["status", "store_listing__store"]
+    search_fields = [
+        "store_listing__store_name",
+        "reported_product__canonical_name",
+        "reassigned_product__canonical_name",
+        "resolved_by__username",
+    ]
+    autocomplete_fields = [
+        "store_listing",
+        "reported_product",
+        "reassigned_product",
+        "resolved_by",
+    ]

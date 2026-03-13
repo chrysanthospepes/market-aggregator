@@ -16,6 +16,7 @@
         <a href="{% url 'home' %}" class="home-link">{% trans "Home" %}</a>
         {% if request.user.is_staff %}
           <a href="{% url 'match-review-queue' %}" class="home-link">{% trans "Review queue" %}</a>
+          <a href="{% url 'listing-report-queue' %}" class="home-link">{% trans "Listing reports" %}</a>
         {% endif %}
       </div>
       <form method="get" action="{% url 'product-list' %}" class="nav-search-form">
@@ -45,6 +46,14 @@
         </noscript>
       </form>
     </div>
+
+    {% if messages %}
+      <ul class="message-list">
+        {% for message in messages %}
+          <li class="message message--{{ message.tags|default:'info' }}">{{ message }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
 
     <section class="detail-header">
       <div class="title-wrap">
@@ -77,7 +86,7 @@
               <th>{% trans "Unit Price" %}</th>
               <th>{% trans "Offer" %}</th>
               <th>{% trans "Last Seen" %}</th>
-              <th>{% trans "Link" %}</th>
+              <th>{% trans "Actions" %}</th>
             </tr>
           </thead>
           <tbody>
@@ -124,11 +133,22 @@
                   {% endif %}
                 </td>
                 <td>{{ listing.last_seen_at }}</td>
-                <td>
+                <td class="listing-actions-cell">
                   {% if listing.url %}
                     <a href="{{ listing.url }}" target="_blank" rel="noopener noreferrer">{% trans "Open" %}</a>
-                  {% else %}
-                    -
+                  {% endif %}
+                  <form method="post" action="{% url 'report-product-listing' product.id %}" class="report-form">
+                    {% csrf_token %}
+                    <input type="hidden" name="listing_id" value="{{ listing.id }}">
+                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                    <button type="submit" class="report-button">{% trans "Report wrong product" %}</button>
+                  </form>
+                  {% if listing.pending_product_report_count %}
+                    <span class="report-state">
+                      {% blocktrans trimmed with count=listing.pending_product_report_count %}
+                        Pending report ({{ count }})
+                      {% endblocktrans %}
+                    </span>
                   {% endif %}
                 </td>
               </tr>

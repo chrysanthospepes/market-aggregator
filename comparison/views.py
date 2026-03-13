@@ -30,12 +30,14 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.http import urlencode, url_has_allowed_host_and_scheme
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+from django.views.decorators.http import require_POST
 
 from catalog.category_mapping import resolve_category_id_for_source
 from catalog.models import Category, Product, Store
 from catalog.search_normalizer import build_search_forms
-from comparison.models import MatchReview
+from comparison.models import ListingProductReport, MatchReview
 from comparison.pricing import (
     PRICE_PROFILE_OPTIONS,
     PRICE_PROFILE_PARAM,
@@ -51,6 +53,7 @@ from ingestion.models import StoreListing
 HOME_PRODUCTS_PER_STORE = 20
 PRODUCTS_PER_PAGE = 20
 REVIEW_QUEUE_LISTINGS_PER_PAGE = 12
+LISTING_REPORTS_PER_PAGE = 12
 DEFAULT_SORT = "price_asc"
 SORT_OPTIONS: tuple[tuple[str, str], ...] = (
     ("relevance", _("Relevance")),
@@ -188,6 +191,19 @@ def _parse_sort(raw_value: str | None) -> str:
     if value in valid_sort_values:
         return value
     return DEFAULT_SORT
+
+
+def _token_form_query(field_name: str, search_query_forms: list[str]) -> Q:
+    combined = Q()
+    for query_form in search_query_forms:
+        tokens = [token for token in query_form.split() if token]
+        if not tokens:
+            continue
+        form_query = Q()
+        for token in tokens:
+            form_query &= Q(**{f"{field_name}__icontains": token})
+        combined |= form_query
+    return combined
 
 
 def _sort_options_for_query(has_search_query: bool) -> tuple[tuple[str, str], ...]:
@@ -595,18 +611,6 @@ def product_list(request):
                 )
             return similarity
 
-        def _token_form_query(field_name: str) -> Q:
-            combined = Q()
-            for query_form in search_query_forms:
-                tokens = [token for token in query_form.split() if token]
-                if not tokens:
-                    continue
-                form_query = Q()
-                for token in tokens:
-                    form_query &= Q(**{f"{field_name}__icontains": token})
-                combined |= form_query
-            return combined
-
         if connection.vendor == "postgresql":
             products = (
                 products.annotate(
@@ -634,10 +638,14 @@ def product_list(request):
                 .filter(search_score__gte=0.08)
             )
         else:
-            product_search_q = _token_form_query("search_name") | _token_form_query("canonical_name")
-            listing_text_q = _token_form_query("store_listings__search_store_name") | _token_form_query(
-                "store_listings__store_name"
+            product_search_q = _token_form_query("search_name", search_query_forms) | _token_form_query(
+                "canonical_name",
+                search_query_forms,
             )
+            listing_text_q = _token_form_query(
+                "store_listings__search_store_name",
+                search_query_forms,
+            ) | _token_form_query("store_listings__store_name", search_query_forms)
             primary_form_tokens = [token for token in search_query_forms[0].split() if token]
             primary_token = primary_form_tokens[0] if primary_form_tokens else search_query_forms[0]
 
@@ -789,8 +797,16 @@ def product_detail(request, product_id: int):
         .order_by("store__name", "store_name")
     )
     listing_rows = list(listings)
+    pending_report_counts_by_listing_id = {
+        row["store_listing_id"]: row["report_count"]
+        for row in ListingProductReport.objects.filter(
+            store_listing_id__in=[listing.id for listing in listing_rows],
+            status=ListingProductReport.Status.PENDING,
+        ).values("store_listing_id", "report_count")
+    }
     for listing in listing_rows:
         _set_listing_display_prices(listing, price_profile=selected_price_profile)
+        listing.pending_product_report_count = pending_report_counts_by_listing_id.get(listing.id, 0)
     return render(
         request,
         "comparison/product_detail.html",
@@ -803,6 +819,56 @@ def product_detail(request, product_id: int):
             "selected_price_profile_query": _selected_price_profile_query(selected_price_profile),
         },
     )
+
+
+def _safe_next_url(request, *, default_url: str) -> str:
+    next_url = (request.POST.get("next") or request.GET.get("next") or "").strip()
+    if next_url and url_has_allowed_host_and_scheme(
+        url=next_url,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        return next_url
+    return default_url
+
+
+@require_POST
+def report_product_listing(request, product_id: int):
+    redirect_target = _safe_next_url(
+        request,
+        default_url=reverse("product-detail", args=[product_id]),
+    )
+    listing = get_object_or_404(
+        StoreListing.objects.select_related("product"),
+        id=request.POST.get("listing_id"),
+        product_id=product_id,
+        is_active=True,
+    )
+    now = timezone.now()
+    pending_report = ListingProductReport.objects.filter(
+        store_listing=listing,
+        status=ListingProductReport.Status.PENDING,
+    ).first()
+
+    if pending_report is None:
+        ListingProductReport.objects.create(
+            store_listing=listing,
+            reported_product=listing.product,
+            last_reported_at=now,
+        )
+        messages.success(request, "The listing was reported for admin review.")
+    else:
+        ListingProductReport.objects.filter(pk=pending_report.pk).update(
+            report_count=F("report_count") + 1,
+            reported_product=listing.product,
+            last_reported_at=now,
+        )
+        messages.success(
+            request,
+            "The listing was already pending review, and the report count was increased.",
+        )
+
+    return redirect(redirect_target)
 
 
 def product_offers(request, product_id: int):
@@ -978,14 +1044,117 @@ def _review_queue_filters_query(*, search_query: str, selected_store_id: int | N
 
 
 def _review_queue_redirect_target(request) -> str:
-    next_url = (request.POST.get("next") or "").strip()
-    if next_url and url_has_allowed_host_and_scheme(
-        url=next_url,
-        allowed_hosts={request.get_host()},
-        require_https=request.is_secure(),
-    ):
-        return next_url
-    return reverse("match-review-queue")
+    return _safe_next_url(
+        request,
+        default_url=reverse("match-review-queue"),
+    )
+
+
+def _listing_resolved_category_id(listing: StoreListing) -> int | None:
+    if not listing.source_category:
+        return None
+    return resolve_category_id_for_source(
+        store_id=listing.store_id,
+        source_category=listing.source_category,
+    )
+
+
+def _build_listing_report_entry(report: ListingProductReport) -> dict[str, object]:
+    listing = report.store_listing
+    current_product = listing.product
+    reported_product = report.reported_product
+
+    return {
+        "report": report,
+        "listing": listing,
+        "listing_store_display_name": _store_display_name(listing.store.name),
+        "listing_store_icon_url": _store_icon_url(listing.store.name),
+        "listing_offer_label": _listing_offer_label(listing),
+        "current_product": current_product,
+        "current_product_quantity": _product_quantity_label(current_product),
+        "reported_product": reported_product,
+        "reported_product_quantity": _product_quantity_label(reported_product),
+        "resolved_category_id": _listing_resolved_category_id(listing),
+    }
+
+
+def _listing_report_filters_query(*, search_query: str, selected_store_id: int | None) -> str:
+    params: list[tuple[str, str]] = []
+    if search_query:
+        params.append(("q", search_query))
+    if selected_store_id is not None:
+        params.append(("store", str(selected_store_id)))
+    return urlencode(params)
+
+
+def _listing_report_default_candidate_query(report: ListingProductReport) -> str:
+    listing = report.store_listing
+    for value in [listing.store_name, listing.store_brand, report.reported_product]:
+        if isinstance(value, Product):
+            if value.canonical_name:
+                return value.canonical_name
+            continue
+        text = (value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _listing_report_preferred_category_id(report: ListingProductReport) -> int | None:
+    listing = report.store_listing
+    for category_id in [
+        _listing_resolved_category_id(listing),
+        getattr(listing.product, "category_id", None),
+        getattr(report.reported_product, "category_id", None),
+    ]:
+        if category_id:
+            return category_id
+    return None
+
+
+def _listing_report_candidate_products(
+    *,
+    report: ListingProductReport,
+    query: str,
+) -> list[Product]:
+    search_query_forms = build_search_forms(query)
+    if not search_query_forms:
+        return []
+
+    primary_form_tokens = [token for token in search_query_forms[0].split() if token]
+    primary_token = primary_form_tokens[0] if primary_form_tokens else search_query_forms[0]
+    preferred_category_id = _listing_report_preferred_category_id(report)
+    listing = report.store_listing
+
+    query_filter = (
+        _token_form_query("search_name", search_query_forms)
+        | _token_form_query("canonical_name", search_query_forms)
+        | _token_form_query("brand_normalized", search_query_forms)
+    )
+
+    candidates = (
+        Product.objects.select_related("category")
+        .exclude(id=listing.product_id)
+        .filter(query_filter)
+        .annotate(
+            category_priority=Case(
+                When(category_id=preferred_category_id, then=Value(0)),
+                default=Value(1),
+                output_field=IntegerField(),
+            ),
+            match_priority=Case(
+                When(search_name__istartswith=primary_token, then=Value(0)),
+                When(canonical_name__istartswith=primary_token, then=Value(1)),
+                When(search_name__icontains=primary_token, then=Value(2)),
+                When(canonical_name__icontains=primary_token, then=Value(3)),
+                When(brand_normalized__icontains=primary_token, then=Value(4)),
+                default=Value(5),
+                output_field=IntegerField(),
+            ),
+        )
+        .order_by("category_priority", "match_priority", "canonical_name")[:12]
+    )
+    return list(candidates)
 
 
 @staff_member_required(login_url="admin:login")
@@ -1161,5 +1330,202 @@ def match_review_queue(request):
             "filters_query": filters_query,
             "visible_listing_count": len(queue_entries),
             "visible_review_count": len(review_rows),
+        },
+    )
+
+
+@staff_member_required(login_url="admin:login")
+def listing_report_queue(request):
+    search_query = (request.GET.get("q") or "").strip()
+    try:
+        selected_store_id = int(request.GET.get("store", "").strip() or "")
+    except (TypeError, ValueError):
+        selected_store_id = None
+    if selected_store_id is not None and selected_store_id <= 0:
+        selected_store_id = None
+
+    report_queryset = ListingProductReport.objects.filter(
+        status=ListingProductReport.Status.PENDING
+    ).select_related(
+        "store_listing__store",
+        "store_listing__product__category",
+        "reported_product__category",
+    )
+
+    if selected_store_id is not None:
+        report_queryset = report_queryset.filter(store_listing__store_id=selected_store_id)
+    if search_query:
+        report_queryset = report_queryset.filter(
+            Q(store_listing__store_name__icontains=search_query)
+            | Q(store_listing__store_brand__icontains=search_query)
+            | Q(store_listing__source_category__icontains=search_query)
+            | Q(store_listing__product__canonical_name__icontains=search_query)
+            | Q(reported_product__canonical_name__icontains=search_query)
+        )
+
+    report_rows = list(report_queryset.order_by("-last_reported_at", "-id"))
+    queue_entries = [_build_listing_report_entry(report) for report in report_rows]
+    resolved_category_ids = {
+        entry["resolved_category_id"]
+        for entry in queue_entries
+        if entry["resolved_category_id"] is not None
+    }
+    categories_by_id = {
+        category.id: category
+        for category in Category.objects.filter(id__in=resolved_category_ids)
+    }
+    for entry in queue_entries:
+        entry["resolved_category"] = categories_by_id.get(entry["resolved_category_id"])
+
+    paginator = Paginator(queue_entries, LISTING_REPORTS_PER_PAGE)
+    page_obj = paginator.get_page(request.GET.get("page"))
+
+    pending_store_filter = Q(
+        listings__listing_product_reports__status=ListingProductReport.Status.PENDING
+    )
+    stores = list(
+        Store.objects.filter(pending_store_filter)
+        .annotate(
+            pending_listing_count=Count(
+                "listings",
+                filter=pending_store_filter,
+                distinct=True,
+            ),
+        )
+        .order_by("name")
+    )
+    for store in stores:
+        store.display_name = _store_display_name(store.name)
+
+    filters_query = _listing_report_filters_query(
+        search_query=search_query,
+        selected_store_id=selected_store_id,
+    )
+
+    return render(
+        request,
+        "comparison/listing_report_queue.html",
+        {
+            "page_obj": page_obj,
+            "stores": stores,
+            "search_query": search_query,
+            "selected_store_id": selected_store_id,
+            "filters_query": filters_query,
+            "visible_report_count": len(queue_entries),
+        },
+    )
+
+
+@staff_member_required(login_url="admin:login")
+def listing_report_detail(request, report_id: int):
+    report = get_object_or_404(
+        ListingProductReport.objects.select_related(
+            "store_listing__store",
+            "store_listing__product__category",
+            "reported_product__category",
+        ),
+        id=report_id,
+        status=ListingProductReport.Status.PENDING,
+    )
+    return_to = _safe_next_url(
+        request,
+        default_url=reverse("listing-report-queue"),
+    )
+
+    if request.method == "POST":
+        action = (request.POST.get("action") or "").strip()
+        redirect_target = _safe_next_url(
+            request,
+            default_url=reverse("listing-report-queue"),
+        )
+        report = ListingProductReport.objects.select_related(
+            "store_listing__product",
+        ).filter(
+            id=report_id,
+            status=ListingProductReport.Status.PENDING,
+        ).first()
+        if report is None:
+            messages.error(request, "The selected report is no longer pending.")
+            return redirect(redirect_target)
+
+        if action == "reassign":
+            try:
+                target_product_id = int(request.POST.get("target_product_id", "").strip())
+            except (AttributeError, TypeError, ValueError):
+                target_product_id = None
+            target_product = (
+                Product.objects.select_related("category").filter(id=target_product_id).first()
+                if target_product_id is not None
+                else None
+            )
+            if target_product is None:
+                messages.error(request, "Select a valid product for reassignment.")
+                return redirect(reverse("listing-report-detail", args=[report_id]))
+            if target_product.id == report.store_listing.product_id:
+                messages.error(
+                    request,
+                    "The listing is already linked to that product. Dismiss the report instead.",
+                )
+                return redirect(reverse("listing-report-detail", args=[report_id]))
+
+            listing = report.store_listing
+            listing.product = target_product
+            listing.save(update_fields=["product"])
+            report.reassigned_product = target_product
+            report.status = ListingProductReport.Status.REASSIGNED
+            report.resolved_at = timezone.now()
+            report.resolved_by = request.user
+            report.save(
+                update_fields=[
+                    "reassigned_product",
+                    "status",
+                    "resolved_at",
+                    "resolved_by",
+                ]
+            )
+            messages.success(
+                request,
+                f"Reassigned the listing to '{target_product.canonical_name}'.",
+            )
+            return redirect(redirect_target)
+
+        if action == "dismiss":
+            report.status = ListingProductReport.Status.DISMISSED
+            report.resolved_at = timezone.now()
+            report.resolved_by = request.user
+            report.save(update_fields=["status", "resolved_at", "resolved_by"])
+            messages.success(request, "Dismissed the listing report.")
+            return redirect(redirect_target)
+
+        messages.error(request, "Unknown report action.")
+        return redirect(reverse("listing-report-detail", args=[report_id]))
+
+    entry = _build_listing_report_entry(report)
+    resolved_category_id = entry["resolved_category_id"]
+    entry["resolved_category"] = (
+        Category.objects.filter(id=resolved_category_id).first()
+        if resolved_category_id is not None
+        else None
+    )
+
+    candidate_query = (
+        (request.GET.get("candidate_q") or "").strip()
+        or _listing_report_default_candidate_query(report)
+    )
+    candidate_products = _listing_report_candidate_products(
+        report=report,
+        query=candidate_query,
+    )
+    for candidate in candidate_products:
+        candidate.quantity_label = _product_quantity_label(candidate)
+
+    return render(
+        request,
+        "comparison/listing_report_detail.html",
+        {
+            "entry": entry,
+            "candidate_query": candidate_query,
+            "candidate_products": candidate_products,
+            "return_to": return_to,
         },
     )

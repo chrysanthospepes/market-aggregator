@@ -170,6 +170,31 @@ input[type="submit"]:hover {
   color: var(--text-muted);
 }
 
+.message-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem;
+}
+
+.message {
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--shadow-soft);
+}
+
+.message--success {
+  border-color: #9ec6a8;
+  background: #edf7ef;
+}
+
+.message--error {
+  border-color: #d8a5a5;
+  background: #fff1f1;
+}
+
 .price-profile-panel {
   border: 1px solid var(--border);
   border-radius: 12px;

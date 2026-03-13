@@ -65,31 +65,6 @@
   min-width: 200px;
 }
 
-.message-list {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 1rem;
-}
-
-.message {
-  border-radius: 12px;
-  padding: 0.85rem 1rem;
-  margin-bottom: 0.75rem;
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: var(--shadow-soft);
-}
-
-.message--success {
-  border-color: #9ec6a8;
-  background: #edf7ef;
-}
-
-.message--error {
-  border-color: #d8a5a5;
-  background: #fff1f1;
-}
-
 .queue-list {
   display: grid;
   gap: 1.1rem;
@@ -357,6 +332,54 @@
   background: var(--accent-soft);
 }
 
+.nav-search-form--static {
+  justify-content: center;
+}
+
+.detail-entry-grid {
+  margin-bottom: 1rem;
+}
+
+.candidate-search-panel {
+  overflow: hidden;
+}
+
+.candidate-search-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: end;
+  margin-bottom: 1rem;
+}
+
+.queue-kicker--inline {
+  margin-bottom: 0.25rem;
+}
+
+.candidate-search-header h2 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.candidate-search-form {
+  display: flex;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.candidate-search-form input[type="search"] {
+  min-width: 280px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 0.48rem 0.64rem;
+  background: var(--surface);
+}
+
+.candidate-card--compact {
+  padding: 1rem;
+}
+
 .score-breakdown {
   margin-top: 0.9rem;
 }
@@ -477,6 +500,16 @@
   }
 
   .candidate-overview {
+    width: 100%;
+  }
+
+  .candidate-search-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .candidate-search-form input[type="search"] {
+    min-width: 0;
     width: 100%;
   }
 
