@@ -1,22 +1,20 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from decimal import Decimal
 
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.conf import settings
 from django.core.paginator import Paginator
-from django.db import connection
 from django.db.models import (
     BooleanField,
     Case,
     Count,
     DecimalField,
+    Exists,
     F,
-    FloatField,
     IntegerField,
-    Max,
-    Min,
     OuterRef,
     Prefetch,
     Q,
@@ -25,7 +23,6 @@ from django.db.models import (
     When,
 )
 from django.db.models.functions import Coalesce, Greatest
-from django.contrib.postgres.search import TrigramSimilarity
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -303,26 +300,52 @@ def _set_product_display_prices(product, *, price_profile: str) -> None:
     )
 
 
-def _pagination_page_tokens(*, current_page: int, total_pages: int) -> list[int | None]:
-    if total_pages <= 0:
-        return []
+@dataclass(frozen=True)
+class OffsetPage:
+    object_list: list
+    number: int
+    per_page: int
+    _has_next: bool
 
-    pages: set[int] = {1, total_pages}
-    if current_page <= 5:
-        pages.update(range(1, min(total_pages, 5) + 1))
-    elif current_page >= total_pages - 4:
-        pages.update(range(max(1, total_pages - 4), total_pages + 1))
+    def has_next(self) -> bool:
+        return self._has_next
 
-    pages.update(range(max(1, current_page - 2), min(total_pages, current_page + 2) + 1))
+    def has_previous(self) -> bool:
+        return self.number > 1
 
-    tokens: list[int | None] = []
-    previous_page: int | None = None
-    for page_number in sorted(page for page in pages if 1 <= page <= total_pages):
-        if previous_page is not None and page_number - previous_page > 1:
-            tokens.append(None)
-        tokens.append(page_number)
-        previous_page = page_number
-    return tokens
+    def has_other_pages(self) -> bool:
+        return self.has_previous() or self.has_next()
+
+    def next_page_number(self) -> int:
+        return self.number + 1
+
+    def previous_page_number(self) -> int:
+        return self.number - 1
+
+
+def _paginate_queryset_without_count(queryset, *, raw_page: str | None, per_page: int) -> OffsetPage:
+    try:
+        page_number = int((raw_page or "").strip() or "1")
+    except (AttributeError, TypeError, ValueError):
+        page_number = 1
+    if page_number <= 0:
+        page_number = 1
+
+    offset = (page_number - 1) * per_page
+    rows = list(queryset[offset : offset + per_page + 1])
+
+    # Avoid an empty page on out-of-range page numbers without issuing a full COUNT(*).
+    if page_number > 1 and not rows:
+        page_number = 1
+        rows = list(queryset[: per_page + 1])
+
+    has_next = len(rows) > per_page
+    return OffsetPage(
+        object_list=rows[:per_page],
+        number=page_number,
+        per_page=per_page,
+        _has_next=has_next,
+    )
 
 
 def home(request):
@@ -403,13 +426,16 @@ def product_list(request):
     selected_offer_filters = _parse_selected_offer_filters(request.GET.getlist("offer_filter"))
     selected_price_profile = parse_price_profile(request.GET.get(PRICE_PROFILE_PARAM))
     selected_price_profile_meta = get_price_profile(selected_price_profile)
-    category_listing_filter = Q(products__store_listings__is_active=True)
+    category_products = Product.objects.filter(
+        category_id=OuterRef("pk"),
+        store_listings__is_active=True,
+    )
     if selected_store_ids:
-        category_listing_filter &= Q(products__store_listings__store_id__in=selected_store_ids)
+        category_products = category_products.filter(store_listings__store_id__in=selected_store_ids)
     available_categories = list(
-        Category.objects.filter(category_listing_filter)
+        Category.objects.annotate(has_available_product=Exists(category_products))
+        .filter(has_available_product=True)
         .order_by("name")
-        .distinct()
     )
     available_categories.sort(key=lambda category: category.display_name.lower())
     selected_category_slug = selected_category_filter
@@ -421,12 +447,11 @@ def product_list(request):
         )
         if category_slug:
             selected_category_slug = category_slug
+    selected_active_listings = StoreListing.objects.filter(product_id=OuterRef("pk"), is_active=True)
     active_listings = StoreListing.objects.filter(product_id=OuterRef("pk"), is_active=True)
-    all_active_listing_filter = Q(store_listings__is_active=True)
-    selected_listing_filter = all_active_listing_filter
     if selected_store_ids:
+        selected_active_listings = selected_active_listings.filter(store_id__in=selected_store_ids)
         active_listings = active_listings.filter(store_id__in=selected_store_ids)
-        selected_listing_filter &= Q(store_listings__store_id__in=selected_store_ids)
 
     active_listings = active_listings.annotate(
         effective_hidden_price=adjusted_price_expression(
@@ -476,66 +501,45 @@ def product_list(request):
         "effective_final_price",
         "id",
     )
+    cheapest_unit_price_listing = (
+        active_listings.annotate(
+            sort_unit_price=Coalesce(
+                "effective_hidden_unit_price",
+                "effective_final_unit_price",
+                output_field=DecimalField(max_digits=12, decimal_places=4),
+            )
+        )
+        .exclude(sort_unit_price__isnull=True)
+        .order_by("sort_unit_price", "id")
+    )
+
+    display_product_annotations = {
+        "cheapest_final_price": Subquery(cheapest_price_listing.values("effective_final_price")[:1]),
+        "cheapest_original_price": Subquery(cheapest_price_listing.values("effective_original_price")[:1]),
+        "cheapest_final_unit_price": Subquery(
+            cheapest_price_listing.values("effective_final_unit_price")[:1]
+        ),
+        "cheapest_original_unit_price": Subquery(
+            cheapest_price_listing.values("effective_original_unit_price")[:1]
+        ),
+        "cheapest_store_name": Subquery(cheapest_price_listing.values("store__name")[:1]),
+        "cheapest_unit_of_measure": Subquery(cheapest_price_listing.values("unit_of_measure")[:1]),
+        "cheapest_discount_percent": Subquery(cheapest_price_listing.values("discount_percent")[:1]),
+        "cheapest_one_plus_one": Subquery(cheapest_price_listing.values("one_plus_one")[:1]),
+        "cheapest_two_plus_one": Subquery(cheapest_price_listing.values("two_plus_one")[:1]),
+    }
+    needs_offer_annotations = bool(selected_offer_filters) or sort == "discount_desc"
+    needs_price_sort_annotations = sort in {"price_asc", "price_desc", "discount_desc"}
+    needs_unit_sort_annotations = sort in {"unit_price_asc", "unit_price_desc"}
 
     products = (
-        Product.objects.select_related("category")
-        .annotate(
-            active_listing_count=Count(
-                "store_listings",
-                filter=all_active_listing_filter,
-                distinct=True,
-            ),
-            selected_store_listing_count=Count(
-                "store_listings",
-                filter=selected_listing_filter,
-                distinct=True,
-            ),
-            lowest_sort_unit_price=Min(
-                Coalesce(
-                    adjusted_price_expression(
-                        "store_listings__hidden_unit_price",
-                        store_field_name="store_listings__store__name",
-                        price_profile=selected_price_profile,
-                    ),
-                    adjusted_price_expression(
-                        "store_listings__final_unit_price",
-                        store_field_name="store_listings__store__name",
-                        price_profile=selected_price_profile,
-                    ),
-                    output_field=DecimalField(max_digits=12, decimal_places=4),
-                ),
-                filter=selected_listing_filter
-                & (
-                    Q(store_listings__hidden_unit_price__isnull=False)
-                    | Q(store_listings__final_unit_price__isnull=False)
-                ),
-            ),
-            lowest_final_unit_price=Min(
-                adjusted_price_expression(
-                    "store_listings__final_unit_price",
-                    store_field_name="store_listings__store__name",
-                    price_profile=selected_price_profile,
-                ),
-                filter=selected_listing_filter & Q(store_listings__final_unit_price__isnull=False),
-            ),
-            cheapest_sort_price=Subquery(cheapest_sort_price_listing.values("sort_price")[:1]),
-            cheapest_final_price=Subquery(cheapest_price_listing.values("effective_final_price")[:1]),
-            cheapest_original_price=Subquery(
-                cheapest_price_listing.values("effective_original_price")[:1]
-            ),
-            cheapest_final_unit_price=Subquery(
-                cheapest_price_listing.values("effective_final_unit_price")[:1]
-            ),
-            cheapest_original_unit_price=Subquery(
-                cheapest_price_listing.values("effective_original_unit_price")[:1]
-            ),
-            cheapest_store_name=Subquery(cheapest_price_listing.values("store__name")[:1]),
-            cheapest_unit_of_measure=Subquery(
-                cheapest_price_listing.values("unit_of_measure")[:1]
-            ),
-            cheapest_discount_percent=Subquery(
-                cheapest_price_listing.values("discount_percent")[:1]
-            ),
+        Product.objects.annotate(has_selected_listing=Exists(selected_active_listings))
+        .filter(has_selected_listing=True)
+    )
+
+    if needs_offer_annotations:
+        products = products.annotate(
+            cheapest_discount_percent=Subquery(cheapest_price_listing.values("discount_percent")[:1]),
             cheapest_one_plus_one=Subquery(cheapest_price_listing.values("one_plus_one")[:1]),
             cheapest_two_plus_one=Subquery(cheapest_price_listing.values("two_plus_one")[:1]),
             cheapest_offer=Coalesce(
@@ -543,16 +547,32 @@ def product_list(request):
                 Value(False),
                 output_field=BooleanField(),
             ),
-            no_unit_price_sort=Case(
-                When(lowest_sort_unit_price__isnull=True, then=Value(1)),
-                default=Value(0),
-                output_field=IntegerField(),
-            ),
+        )
+
+    if needs_price_sort_annotations:
+        products = products.annotate(
+            cheapest_sort_price=Subquery(cheapest_sort_price_listing.values("sort_price")[:1]),
+        ).annotate(
             no_price_sort=Case(
                 When(cheapest_sort_price__isnull=True, then=Value(1)),
                 default=Value(0),
                 output_field=IntegerField(),
             ),
+        )
+
+    if needs_unit_sort_annotations:
+        products = products.annotate(
+            lowest_sort_unit_price=Subquery(cheapest_unit_price_listing.values("sort_unit_price")[:1]),
+        ).annotate(
+            no_unit_price_sort=Case(
+                When(lowest_sort_unit_price__isnull=True, then=Value(1)),
+                default=Value(0),
+                output_field=IntegerField(),
+            ),
+        )
+
+    if sort == "discount_desc":
+        products = products.annotate(
             discount_sort_group=Case(
                 When(cheapest_discount_percent__gt=0, then=Value(0)),
                 When(cheapest_one_plus_one=True, then=Value(1)),
@@ -566,8 +586,6 @@ def product_list(request):
                 output_field=IntegerField(),
             ),
         )
-        .filter(selected_store_listing_count__gt=0)
-    )
 
     if selected_category_filter:
         if selected_category_filter.isdigit():
@@ -575,22 +593,12 @@ def product_list(request):
         else:
             products = products.filter(category__slug=selected_category_filter)
 
-    offer_counts = products.aggregate(
-        no_offer=Count("id", filter=_offer_filter_condition("no_offer")),
-        discount_0_20=Count("id", filter=_offer_filter_condition("discount_0_20")),
-        discount_21_40=Count("id", filter=_offer_filter_condition("discount_21_40")),
-        discount_41_plus=Count("id", filter=_offer_filter_condition("discount_41_plus")),
-        one_plus_one=Count("id", filter=_offer_filter_condition("one_plus_one")),
-        two_plus_one=Count("id", filter=_offer_filter_condition("two_plus_one")),
-    )
     available_offer_filters = [
         {
             "value": value,
             "label": label,
-            "count": int(offer_counts.get(value) or 0),
         }
         for value, label in OFFER_FILTER_OPTIONS
-        if int(offer_counts.get(value) or 0) > 0 or value in selected_offer_filters
     ]
 
     if selected_offer_filters:
@@ -600,87 +608,42 @@ def product_list(request):
         products = products.filter(selected_offer_q)
 
     if search_query_forms:
+        product_search_q = _token_form_query("search_name", search_query_forms)
+        primary_form_tokens = [token for token in search_query_forms[0].split() if token]
+        primary_token = primary_form_tokens[0] if primary_form_tokens else search_query_forms[0]
 
-        def _best_similarity(field_name: str):
-            similarity = TrigramSimilarity(field_name, search_query_forms[0])
-            for query_form in search_query_forms[1:]:
-                similarity = Greatest(
-                    similarity,
-                    TrigramSimilarity(field_name, query_form),
-                    output_field=FloatField(),
-                )
-            return similarity
-
-        if connection.vendor == "postgresql":
-            products = (
-                products.annotate(
-                    product_search_score=Greatest(
-                        _best_similarity("search_name"),
-                        _best_similarity("canonical_name"),
-                        output_field=FloatField(),
-                    ),
-                    listing_search_score=Max(
-                        Greatest(
-                            _best_similarity("store_listings__search_store_name"),
-                            _best_similarity("store_listings__store_name"),
-                            output_field=FloatField(),
-                        ),
-                        filter=selected_listing_filter,
-                    ),
-                )
-                .annotate(
-                    search_score=Greatest(
-                        Coalesce("product_search_score", Value(0.0)),
-                        Coalesce("listing_search_score", Value(0.0)),
-                        output_field=FloatField(),
-                    )
-                )
-                .filter(search_score__gte=0.08)
+        listing_search_listings = StoreListing.objects.filter(
+            product_id=OuterRef("pk"),
+            is_active=True,
+        ).filter(_token_form_query("search_store_name", search_query_forms))
+        if selected_store_ids:
+            listing_search_listings = listing_search_listings.filter(store_id__in=selected_store_ids)
+        products = (
+            products.annotate(
+                listing_search_match=Exists(listing_search_listings),
             )
-        else:
-            product_search_q = _token_form_query("search_name", search_query_forms) | _token_form_query(
-                "canonical_name",
-                search_query_forms,
+            .filter(product_search_q | Q(listing_search_match=True))
+            .annotate(
+                product_search_score=Case(
+                    When(search_name__istartswith=primary_token, then=Value(120)),
+                    When(search_name__icontains=primary_token, then=Value(100)),
+                    default=Value(0),
+                    output_field=IntegerField(),
+                ),
+                listing_search_score=Case(
+                    When(listing_search_match=True, then=Value(80)),
+                    default=Value(0),
+                    output_field=IntegerField(),
+                ),
             )
-            listing_text_q = _token_form_query(
-                "store_listings__search_store_name",
-                search_query_forms,
-            ) | _token_form_query("store_listings__store_name", search_query_forms)
-            primary_form_tokens = [token for token in search_query_forms[0].split() if token]
-            primary_token = primary_form_tokens[0] if primary_form_tokens else search_query_forms[0]
-
-            listing_search_filter = Q(store_listings__is_active=True) & listing_text_q
-            if selected_store_ids:
-                listing_search_filter &= Q(store_listings__store_id__in=selected_store_ids)
-            products = (
-                products.filter(
-                    product_search_q | listing_search_filter
-                )
-                .annotate(
-                    product_search_score=Case(
-                        When(search_name__istartswith=primary_token, then=Value(120)),
-                        When(canonical_name__istartswith=primary_token, then=Value(110)),
-                        When(search_name__icontains=primary_token, then=Value(100)),
-                        When(canonical_name__icontains=primary_token, then=Value(90)),
-                        default=Value(0),
-                        output_field=IntegerField(),
-                    ),
-                    listing_search_score=Max(
-                        Case(
-                            When(listing_search_filter, then=Value(80)),
-                            default=Value(0),
-                            output_field=IntegerField(),
-                        )
-                    ),
-                )
-                .annotate(
-                    search_score=Greatest(
-                        Coalesce("product_search_score", Value(0)),
-                        Coalesce("listing_search_score", Value(0)),
-                        output_field=IntegerField(),
-                    )
+            .annotate(
+                search_score=Greatest(
+                    Coalesce("product_search_score", Value(0)),
+                    Coalesce("listing_search_score", Value(0)),
+                    output_field=IntegerField(),
                 )
             )
+        )
 
     if sort == "relevance":
         if search_query_forms:
@@ -723,13 +686,40 @@ def product_list(request):
         sort_ordering = ["canonical_name"]
     products = products.order_by(*sort_ordering)
 
-    paginator = Paginator(products, PRODUCTS_PER_PAGE)
-    page_obj = paginator.get_page(request.GET.get("page"))
-    pagination_pages = _pagination_page_tokens(
-        current_page=page_obj.number,
-        total_pages=page_obj.paginator.num_pages,
+    page_id_obj = _paginate_queryset_without_count(
+        products.values_list("id", flat=True),
+        raw_page=request.GET.get("page"),
+        per_page=PRODUCTS_PER_PAGE,
     )
-    page_products = list(page_obj.object_list)
+    page_product_ids = list(page_id_obj.object_list)
+    page_products: list[Product] = []
+    if page_product_ids:
+        page_products_by_id = {
+            product.id: product
+            for product in Product.objects.select_related("category")
+            .filter(id__in=page_product_ids)
+            .annotate(**display_product_annotations)
+        }
+        page_products = [
+            page_products_by_id[product_id]
+            for product_id in page_product_ids
+            if product_id in page_products_by_id
+        ]
+    page_obj = OffsetPage(
+        object_list=page_products,
+        number=page_id_obj.number,
+        per_page=page_id_obj.per_page,
+        _has_next=page_id_obj._has_next,
+    )
+    active_listing_counts = {
+        product_id: count
+        for product_id, count in StoreListing.objects.filter(
+            product_id__in=[product.id for product in page_products],
+            is_active=True,
+        )
+        .values_list("product_id")
+        .annotate(count=Count("id"))
+    }
     for product in page_products:
         product.store_icon_url = _store_icon_url(getattr(product, "cheapest_store_name", None))
         product.sale_icon_url = _sale_icon_url(
@@ -737,19 +727,18 @@ def product_list(request):
             one_plus_one=bool(getattr(product, "cheapest_one_plus_one", False)),
             two_plus_one=bool(getattr(product, "cheapest_two_plus_one", False)),
         )
+        product.active_listing_count = active_listing_counts.get(product.id, 0)
         _set_product_display_prices(product, price_profile=selected_price_profile)
 
+    available_store_listings = StoreListing.objects.filter(
+        store_id=OuterRef("pk"),
+        is_active=True,
+        product_id__isnull=False,
+    )
     stores = list(
-        Store.objects.filter(listings__is_active=True)
-        .annotate(
-            active_product_count=Count(
-                "listings__product_id",
-                filter=Q(listings__is_active=True, listings__product_id__isnull=False),
-                distinct=True,
-            ),
-        )
+        Store.objects.annotate(has_available_listing=Exists(available_store_listings))
+        .filter(has_available_listing=True)
         .order_by("name")
-        .distinct()
     )
     for store in stores:
         store.display_name = _store_display_name(store.name)
@@ -774,7 +763,6 @@ def product_list(request):
             "selected_price_profile": selected_price_profile,
             "selected_price_profile_meta": selected_price_profile_meta,
             "selected_price_profile_query": _selected_price_profile_query(selected_price_profile),
-            "pagination_pages": pagination_pages,
             "selected_filters_query": _selected_filters_query(
                 store_ids=selected_store_ids,
                 offer_filters=selected_offer_filters,

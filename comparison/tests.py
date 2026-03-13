@@ -1486,7 +1486,7 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertEqual(len(response.context["products"]), 20)
         self.assertEqual(response.context["page_obj"].number, 1)
         self.assertTrue(response.context["page_obj"].has_next())
-        self.assertContains(response, "Σελίδα 1 από 2")
+        self.assertContains(response, "Page 1")
         self.assertContains(response, "Product 001")
         self.assertContains(response, "Product 020")
         self.assertNotContains(response, "Product 021")
@@ -1506,11 +1506,11 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertEqual(len(response.context["products"]), 1)
         self.assertEqual(response.context["page_obj"].number, 2)
         self.assertTrue(response.context["page_obj"].has_previous())
-        self.assertContains(response, "Σελίδα 2 από 2")
+        self.assertContains(response, "Page 2")
         self.assertContains(response, "Product 021")
         self.assertNotContains(response, "Product 020")
 
-    def test_product_list_pagination_uses_ellipsis_when_many_pages_exist(self):
+    def test_product_list_pagination_keeps_next_link_without_total_count(self):
         store = Store.objects.create(name="sklavenitis")
         for i in range(1, 182):
             self._create_product_with_listing(
@@ -1522,11 +1522,9 @@ class ComparisonHtmlViewsTests(TestCase):
         response = self.client.get(reverse("product-list"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Σελίδα 1 από 10")
-        self.assertContains(response, 'class="page-ellipsis"')
-        self.assertContains(response, 'page=5">5</a>')
-        self.assertContains(response, 'page=10">10</a>')
-        self.assertNotContains(response, 'page=6">6</a>')
+        self.assertContains(response, "Page 1")
+        self.assertContains(response, "page=2")
+        self.assertNotContains(response, "page-ellipsis")
 
     def test_product_list_can_filter_by_selected_store(self):
         store_a = Store.objects.create(name="ab")
@@ -1612,7 +1610,7 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(
             response,
-            "<span>ΑΒ Βασιλόπουλος <span class=\"store-count\">(1)</span></span>",
+            "<span>ΑΒ Βασιλόπουλος</span>",
             html=True,
         )
         self.assertEqual(response.context["stores"][0].display_name, "ΑΒ Βασιλόπουλος")
@@ -1953,7 +1951,7 @@ class ComparisonHtmlViewsTests(TestCase):
         self.assertTrue(adjusted_product.price_profile_applies)
         self.assertContains(response_profile, "0.90€")
 
-    def test_offer_filter_options_respect_selected_store_scope(self):
+    def test_offer_filter_options_render_without_count_badges(self):
         store_a = Store.objects.create(name="ab")
         store_b = Store.objects.create(name="bazaar")
 
@@ -1986,10 +1984,11 @@ class ComparisonHtmlViewsTests(TestCase):
 
         response_all = self.client.get(reverse("product-list"))
         self.assertContains(response_all, "2 + 1")
+        self.assertNotContains(response_all, '2 + 1 <span class="store-count">')
 
         response_store_a = self.client.get(reverse("product-list"), {"stores": [store_a.id]})
         self.assertContains(response_store_a, "Χωρίς προσφορά")
-        self.assertNotContains(response_store_a, "2 + 1")
+        self.assertContains(response_store_a, "2 + 1")
 
     def test_product_list_store_and_offer_filters_have_independent_clear_links(self):
         store_a = Store.objects.create(name="ab")

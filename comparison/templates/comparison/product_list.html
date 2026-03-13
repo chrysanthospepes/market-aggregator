@@ -128,7 +128,6 @@
               >
               <span>
                 {{ store.display_name }}
-                <span class="store-count">({{ store.active_product_count }})</span>
               </span>
             </label>
           {% endfor %}
@@ -163,7 +162,7 @@
                   value="{{ option.value }}"
                   {% if option.value in selected_offer_filters %}checked{% endif %}
                 >
-                <span>{{ option.label }} <span class="store-count">({{ option.count }})</span></span>
+                <span>{{ option.label }}</span>
               </label>
             {% endfor %}
           </div>
@@ -208,7 +207,7 @@
 
         {% if page_obj.has_other_pages %}
           <nav class="pagination pagination-inline" aria-label="{% trans 'Products pagination' %}">
-            <span class="pagination-status">{% blocktrans trimmed with page_number=page_obj.number total_pages=page_obj.paginator.num_pages %}Page {{ page_number }} of {{ total_pages }}{% endblocktrans %}</span>
+            <span class="pagination-status">{% blocktrans trimmed with page_number=page_obj.number %}Page {{ page_number }}{% endblocktrans %}</span>
 
             <div class="pagination-shell">
               {% if page_obj.has_previous %}
@@ -222,20 +221,6 @@
               {% else %}
                 <span class="page-arrow disabled" aria-hidden="true">&#8249;</span>
               {% endif %}
-
-              <div class="pagination-pages">
-                {% for page_token in pagination_pages %}
-                  {% if page_token %}
-                    {% if page_token == page_obj.number %}
-                      <span class="page-pill current" aria-current="page">{{ page_token }}</span>
-                    {% else %}
-                      <a class="page-pill" href="?sort={{ sort }}{{ selected_filters_query }}&page={{ page_token }}">{{ page_token }}</a>
-                    {% endif %}
-                  {% else %}
-                    <span class="page-ellipsis" aria-hidden="true">&hellip;</span>
-                  {% endif %}
-                {% endfor %}
-              </div>
 
               {% if page_obj.has_next %}
                 <a
@@ -257,7 +242,6 @@
                 type="number"
                 name="page"
                 min="1"
-                max="{{ page_obj.paginator.num_pages }}"
                 inputmode="numeric"
                 onchange="this.form.submit()"
               >
@@ -330,7 +314,7 @@
         </section>
         {% if page_obj.has_other_pages %}
           <nav class="pagination pagination-bottom" aria-label="{% trans 'Products pagination bottom' %}">
-            <span class="pagination-status">{% blocktrans trimmed with page_number=page_obj.number total_pages=page_obj.paginator.num_pages %}Page {{ page_number }} of {{ total_pages }}{% endblocktrans %}</span>
+            <span class="pagination-status">{% blocktrans trimmed with page_number=page_obj.number %}Page {{ page_number }}{% endblocktrans %}</span>
 
             <div class="pagination-shell">
               {% if page_obj.has_previous %}
@@ -344,20 +328,6 @@
               {% else %}
                 <span class="page-arrow disabled" aria-hidden="true">&#8249;</span>
               {% endif %}
-
-              <div class="pagination-pages">
-                {% for page_token in pagination_pages %}
-                  {% if page_token %}
-                    {% if page_token == page_obj.number %}
-                      <span class="page-pill current" aria-current="page">{{ page_token }}</span>
-                    {% else %}
-                      <a class="page-pill" href="?sort={{ sort }}{{ selected_filters_query }}&page={{ page_token }}">{{ page_token }}</a>
-                    {% endif %}
-                  {% else %}
-                    <span class="page-ellipsis" aria-hidden="true">&hellip;</span>
-                  {% endif %}
-                {% endfor %}
-              </div>
 
               {% if page_obj.has_next %}
                 <a
@@ -392,7 +362,6 @@
                 type="number"
                 name="page"
                 min="1"
-                max="{{ page_obj.paginator.num_pages }}"
                 inputmode="numeric"
                 onchange="this.form.submit()"
               >

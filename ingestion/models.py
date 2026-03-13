@@ -78,6 +78,22 @@ class StoreListing(models.Model):
             models.Index(fields=["store", "is_active"], name="idx_listing_store_active"),
             models.Index(fields=["product", "is_active"], name="idx_listing_product_active"),
             models.Index(fields=["store", "last_seen_at"], name="idx_listing_store_seen"),
+            models.Index(
+                fields=["product", "is_active", "final_price", "id"],
+                name="idx_listing_prod_price",
+            ),
+            models.Index(
+                fields=["product", "is_active", "hidden_price", "id"],
+                name="idx_listing_prod_hprice",
+            ),
+            models.Index(
+                fields=["product", "is_active", "final_unit_price", "id"],
+                name="idx_listing_prod_unit",
+            ),
+            models.Index(
+                fields=["product", "is_active", "hidden_unit_price", "id"],
+                name="idx_listing_prod_hunit",
+            ),
         ]
         constraints = [
             models.CheckConstraint(
