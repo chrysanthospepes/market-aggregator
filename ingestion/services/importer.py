@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import csv
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any, Optional
 from collections.abc import Callable
+from typing import Any, Optional
 
 from django.db import transaction
 from django.db.models import Q
@@ -37,6 +37,23 @@ class ImportSummary:
     matcher_auto_matched: int = 0
     matcher_review_created: int = 0
     matcher_created_products: int = 0
+
+
+@dataclass
+class NormalizedRowsBatch:
+    rows: list[dict[str, Any]] = field(default_factory=list)
+    errored_rows: int = 0
+    error_messages: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ImportBatchResult:
+    created: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    deactivated: int = 0
+    seen_ids: set[int] = field(default_factory=set)
+    changed_listing_ids: set[int] = field(default_factory=set)
 
 
 def _clean_str(value: Any) -> Optional[str]:
@@ -246,6 +263,169 @@ def _remember_listing_lookup(
         listings_by_url[listing.url] = listing
 
 
+def _normalize_rows_for_import(
+    rows: list[dict[str, Any]],
+    *,
+    snapshot_at: datetime,
+) -> NormalizedRowsBatch:
+    batch = NormalizedRowsBatch()
+    for row_number, raw in enumerate(rows, start=1):
+        normalized = _normalize_row(raw, snapshot_at=snapshot_at)
+        if normalized is None:
+            batch.errored_rows += 1
+            batch.error_messages.append(f"row {row_number}: missing name/sku/url")
+            continue
+        batch.rows.append(normalized)
+    return batch
+
+
+def _update_listing_from_normalized(
+    listing: StoreListing,
+    normalized: dict[str, Any],
+) -> list[str]:
+    updated_fields: list[str] = []
+    for field_name, value in normalized.items():
+        if getattr(listing, field_name) != value:
+            setattr(listing, field_name, value)
+            updated_fields.append(field_name)
+    return updated_fields
+
+
+def _upsert_normalized_rows(
+    *,
+    store: Store,
+    normalized_rows: list[dict[str, Any]],
+    snapshot_at: datetime,
+) -> ImportBatchResult:
+    result = ImportBatchResult()
+    pending_price_history_rows: list[PriceHistory] = []
+    listings_by_sku, listings_by_url = _preload_listing_lookup(
+        store=store,
+        normalized_rows=normalized_rows,
+    )
+
+    for normalized in normalized_rows:
+        sku = normalized["store_sku"]
+        url = normalized["url"]
+        listing = listings_by_sku.get(sku) if sku else None
+        if listing is None and url:
+            listing = listings_by_url.get(url)
+
+        if listing is None:
+            listing = StoreListing.objects.create(store=store, **normalized)
+            _remember_listing_lookup(
+                listing=listing,
+                listings_by_sku=listings_by_sku,
+                listings_by_url=listings_by_url,
+            )
+            result.created += 1
+            result.changed_listing_ids.add(listing.id)
+        else:
+            previous_sku = listing.store_sku
+            previous_url = listing.url
+            updated_fields = _update_listing_from_normalized(listing, normalized)
+            if updated_fields:
+                listing.save(update_fields=updated_fields)
+                _remember_listing_lookup(
+                    listing=listing,
+                    listings_by_sku=listings_by_sku,
+                    listings_by_url=listings_by_url,
+                    previous_sku=previous_sku,
+                    previous_url=previous_url,
+                )
+                result.updated += 1
+                result.changed_listing_ids.add(listing.id)
+            else:
+                result.unchanged += 1
+
+        result.seen_ids.add(listing.id)
+        pending_price_history_rows.append(
+            PriceHistory(
+                store_listing=listing,
+                captured_at=snapshot_at,
+                price=listing.final_price,
+                unit_price=listing.final_unit_price,
+            )
+        )
+
+    if pending_price_history_rows:
+        PriceHistory.objects.bulk_create(
+            pending_price_history_rows,
+            ignore_conflicts=True,
+        )
+
+    result.deactivated = StoreListing.objects.filter(
+        store=store,
+        is_active=True,
+    ).exclude(id__in=result.seen_ids).update(is_active=False)
+    return result
+
+
+def _mark_crawler_run_failed(
+    crawler_run: CrawlerRun,
+    *,
+    seen_count: int,
+    exc: Exception,
+) -> None:
+    crawler_run.status = CrawlerRun.Status.FAILED
+    crawler_run.finished_at = timezone.now()
+    crawler_run.error_summary = f"{crawler_run.error_summary}\n{exc}".strip()
+    crawler_run.items_seen = seen_count
+    crawler_run.save(
+        update_fields=["status", "finished_at", "error_summary", "items_seen"],
+    )
+
+
+def _mark_crawler_run_finished(
+    crawler_run: CrawlerRun,
+    *,
+    summary: ImportSummary,
+    error_messages: list[str],
+) -> None:
+    crawler_run.items_seen = summary.items_seen
+    crawler_run.finished_at = timezone.now()
+    if summary.errored_rows and summary.items_seen:
+        crawler_run.status = CrawlerRun.Status.PARTIAL
+    elif summary.errored_rows and not summary.items_seen:
+        crawler_run.status = CrawlerRun.Status.FAILED
+    else:
+        crawler_run.status = CrawlerRun.Status.SUCCESS
+
+    if error_messages:
+        details = "\n".join(error_messages[:20])
+        crawler_run.error_summary = f"{crawler_run.error_summary}\n{details}".strip()
+
+    crawler_run.save(
+        update_fields=["items_seen", "finished_at", "status", "error_summary"],
+    )
+
+
+def _run_matcher_for_changed_listings(
+    *,
+    summary: ImportSummary,
+    changed_listing_ids: set[int],
+    matcher_progress_every: Optional[int],
+    matcher_progress_callback: Optional[Callable[[str], None]],
+) -> None:
+    if not changed_listing_ids:
+        return
+
+    from matching.matcher import match_store_listings
+
+    match_summary = match_store_listings(
+        listing_ids=changed_listing_ids,
+        only_unmatched=False,
+        include_inactive=False,
+        reconsider_matched=True,
+        progress_every=matcher_progress_every,
+        progress_callback=matcher_progress_callback,
+    )
+    summary.matcher_processed = match_summary.processed
+    summary.matcher_auto_matched = match_summary.auto_matched
+    summary.matcher_review_created = match_summary.review_created
+    summary.matcher_created_products = match_summary.created_products
+
+
 def read_csv_rows(csv_path: str | Path) -> list[dict[str, Any]]:
     path = Path(csv_path)
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
@@ -265,10 +445,7 @@ def import_rows_for_store(
 ) -> ImportSummary:
     snapshot = snapshot_at or timezone.now()
     summary = ImportSummary()
-    changed_listing_ids: set[int] = set()
-    seen_ids: set[int] = set()
-    normalized_rows: list[dict[str, Any]] = []
-    pending_price_history_rows: list[PriceHistory] = []
+    import_batch = ImportBatchResult()
 
     store, _ = Store.objects.get_or_create(name=store_name)
     crawler_run = CrawlerRun.objects.create(
@@ -278,121 +455,41 @@ def import_rows_for_store(
     )
     summary.crawler_run_id = crawler_run.id
 
-    error_messages: list[str] = []
-    for row_number, raw in enumerate(rows, start=1):
-        normalized = _normalize_row(raw, snapshot_at=snapshot)
-        if normalized is None:
-            summary.errored_rows += 1
-            error_messages.append(f"row {row_number}: missing name/sku/url")
-            continue
-        normalized_rows.append(normalized)
+    normalized_batch = _normalize_rows_for_import(rows, snapshot_at=snapshot)
+    summary.errored_rows = normalized_batch.errored_rows
 
     try:
         with transaction.atomic():
-            listings_by_sku, listings_by_url = _preload_listing_lookup(
+            import_batch = _upsert_normalized_rows(
                 store=store,
-                normalized_rows=normalized_rows,
+                normalized_rows=normalized_batch.rows,
+                snapshot_at=snapshot,
             )
-            for normalized in normalized_rows:
-                sku = normalized["store_sku"]
-                url = normalized["url"]
-                listing = listings_by_sku.get(sku) if sku else None
-                if listing is None and url:
-                    listing = listings_by_url.get(url)
-                if listing is None:
-                    listing = StoreListing.objects.create(store=store, **normalized)
-                    _remember_listing_lookup(
-                        listing=listing,
-                        listings_by_sku=listings_by_sku,
-                        listings_by_url=listings_by_url,
-                    )
-                    summary.created += 1
-                    changed_listing_ids.add(listing.id)
-                else:
-                    previous_sku = listing.store_sku
-                    previous_url = listing.url
-                    updated_fields = []
-                    for field, value in normalized.items():
-                        if getattr(listing, field) != value:
-                            setattr(listing, field, value)
-                            updated_fields.append(field)
-                    if updated_fields:
-                        listing.save(update_fields=updated_fields)
-                        _remember_listing_lookup(
-                            listing=listing,
-                            listings_by_sku=listings_by_sku,
-                            listings_by_url=listings_by_url,
-                            previous_sku=previous_sku,
-                            previous_url=previous_url,
-                        )
-                        summary.updated += 1
-                        changed_listing_ids.add(listing.id)
-                    else:
-                        summary.unchanged += 1
-
-                seen_ids.add(listing.id)
-                pending_price_history_rows.append(
-                    PriceHistory(
-                        store_listing=listing,
-                        captured_at=snapshot,
-                        price=listing.final_price,
-                        unit_price=listing.final_unit_price,
-                    )
-                )
-
-            if pending_price_history_rows:
-                PriceHistory.objects.bulk_create(
-                    pending_price_history_rows,
-                    ignore_conflicts=True,
-                )
-
-            summary.deactivated = StoreListing.objects.filter(
-                store=store,
-                is_active=True,
-            ).exclude(id__in=seen_ids).update(is_active=False)
-
     except Exception as exc:
-        crawler_run.status = CrawlerRun.Status.FAILED
-        crawler_run.finished_at = timezone.now()
-        crawler_run.error_summary = f"{crawler_run.error_summary}\n{exc}".strip()
-        crawler_run.items_seen = len(seen_ids)
-        crawler_run.save(
-            update_fields=["status", "finished_at", "error_summary", "items_seen"],
+        _mark_crawler_run_failed(
+            crawler_run,
+            seen_count=len(import_batch.seen_ids),
+            exc=exc,
         )
         raise
 
-    summary.items_seen = len(seen_ids)
-    crawler_run.items_seen = summary.items_seen
-    crawler_run.finished_at = timezone.now()
-    if summary.errored_rows and summary.items_seen:
-        crawler_run.status = CrawlerRun.Status.PARTIAL
-    elif summary.errored_rows and not summary.items_seen:
-        crawler_run.status = CrawlerRun.Status.FAILED
-    else:
-        crawler_run.status = CrawlerRun.Status.SUCCESS
-
-    if error_messages:
-        details = "\n".join(error_messages[:20])
-        crawler_run.error_summary = f"{crawler_run.error_summary}\n{details}".strip()
-
-    crawler_run.save(
-        update_fields=["items_seen", "finished_at", "status", "error_summary"],
+    summary.created = import_batch.created
+    summary.updated = import_batch.updated
+    summary.unchanged = import_batch.unchanged
+    summary.deactivated = import_batch.deactivated
+    summary.items_seen = len(import_batch.seen_ids)
+    _mark_crawler_run_finished(
+        crawler_run,
+        summary=summary,
+        error_messages=normalized_batch.error_messages,
     )
 
-    if run_matcher and changed_listing_ids:
-        from matching.matcher import match_store_listings
-
-        match_summary = match_store_listings(
-            listing_ids=changed_listing_ids,
-            only_unmatched=False,
-            include_inactive=False,
-            reconsider_matched=True,
-            progress_every=matcher_progress_every,
-            progress_callback=matcher_progress_callback,
+    if run_matcher:
+        _run_matcher_for_changed_listings(
+            summary=summary,
+            changed_listing_ids=import_batch.changed_listing_ids,
+            matcher_progress_every=matcher_progress_every,
+            matcher_progress_callback=matcher_progress_callback,
         )
-        summary.matcher_processed = match_summary.processed
-        summary.matcher_auto_matched = match_summary.auto_matched
-        summary.matcher_review_created = match_summary.review_created
-        summary.matcher_created_products = match_summary.created_products
 
     return summary
