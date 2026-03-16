@@ -1,6 +1,8 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 
 from decimal import Decimal
 
@@ -972,6 +974,30 @@ class ComparisonHtmlViewsTests(TestCase):
                 or listing.two_plus_one
                 or bool(listing.offer)
             )
+
+    def test_home_avoids_database_random_ordering(self):
+        store = Store.objects.create(name="mymarket")
+
+        for i in range(1, 6):
+            self._create_product_with_listing(
+                store=store,
+                name=f"Offer product {i}",
+                sku=f"offer-no-random-{i}",
+                offer=True,
+                discount_percent=10 + i,
+            )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        random_order_queries = [
+            query["sql"]
+            for query in queries.captured_queries
+            if "ORDER BY" in query["sql"].upper()
+            and ("RANDOM" in query["sql"].upper() or "RAND(" in query["sql"].upper())
+        ]
+        self.assertEqual(random_order_queries, [])
 
     def test_home_prefers_offer_products_before_non_offer_fill(self):
         store = Store.objects.create(name="kritikos")

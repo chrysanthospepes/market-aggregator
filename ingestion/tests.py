@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from selectolax.parser import HTMLParser
 
 from catalog.models import Category, CategoryAlias, Product, Store
@@ -198,6 +200,43 @@ class ImportPipelineTests(TestCase):
         self.assertEqual(PriceHistory.objects.count(), 4)
         self.assertEqual(CrawlerRun.objects.count(), 2)
         self.assertTrue(all(run.status == CrawlerRun.Status.SUCCESS for run in CrawlerRun.objects.all()))
+
+    def test_import_preloads_matching_listings_in_single_select(self):
+        rows = [
+            {
+                "name": "Product 1",
+                "sku": "batch-sku-1",
+                "url": "https://example.com/batch-1",
+                "final_price": "1.10",
+            },
+            {
+                "name": "Product 2",
+                "sku": "batch-sku-2",
+                "url": "https://example.com/batch-2",
+                "final_price": "1.20",
+            },
+            {
+                "name": "Product 3",
+                "sku": "batch-sku-3",
+                "url": "https://example.com/batch-3",
+                "final_price": "1.30",
+            },
+        ]
+
+        with CaptureQueriesContext(connection) as queries:
+            summary = import_rows_for_store(
+                store_name="bazaar",
+                rows=rows,
+            )
+
+        self.assertEqual(summary.created, 3)
+        listing_selects = [
+            query["sql"]
+            for query in queries.captured_queries
+            if query["sql"].lstrip().upper().startswith("SELECT")
+            and "INGESTION_STORELISTING" in query["sql"].upper()
+        ]
+        self.assertEqual(len(listing_selects), 1)
 
     def test_missing_listings_are_marked_inactive_on_new_run(self):
         first_rows = [

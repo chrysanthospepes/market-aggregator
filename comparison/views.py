@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -260,6 +261,34 @@ def _selected_price_profile_query(price_profile: str) -> str:
     return urlencode([(PRICE_PROFILE_PARAM, price_profile)])
 
 
+def _daily_rotation_offset(*, total_count: int, seed_parts: tuple[object, ...]) -> int:
+    if total_count <= 0:
+        return 0
+
+    seed = "|".join(
+        [
+            timezone.localdate().isoformat(),
+            *(str(part) for part in seed_parts),
+        ]
+    )
+    digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
+    return int(digest[:16], 16) % total_count
+
+
+def _rotating_queryset_sample(queryset, *, limit: int, seed_parts: tuple[object, ...]) -> list:
+    ordered_queryset = queryset.order_by("id")
+    total_count = ordered_queryset.count()
+    if total_count <= limit:
+        return list(ordered_queryset[:limit])
+
+    offset = _daily_rotation_offset(total_count=total_count, seed_parts=seed_parts)
+    rows = list(ordered_queryset[offset : offset + limit])
+    remaining = limit - len(rows)
+    if remaining > 0:
+        rows.extend(list(ordered_queryset[:remaining]))
+    return rows
+
+
 def _set_listing_display_prices(listing: StoreListing, *, price_profile: str) -> None:
     store_name = listing.store.name if getattr(listing, "store_id", None) else None
     listing.store_display_name = _store_display_name(store_name)
@@ -365,14 +394,19 @@ def home(request):
                 product__isnull=False,
             )
         )
-        offer_listings = list(listings.filter(_listing_offer_condition()).order_by("?")[:HOME_PRODUCTS_PER_STORE])
+        offer_listings = _rotating_queryset_sample(
+            listings.filter(_listing_offer_condition()),
+            limit=HOME_PRODUCTS_PER_STORE,
+            seed_parts=(store.id, "offers"),
+        )
 
         remaining_slots = HOME_PRODUCTS_PER_STORE - len(offer_listings)
         non_offer_listings: list[StoreListing] = []
         if remaining_slots > 0:
-            selected_ids = [listing.id for listing in offer_listings]
-            non_offer_listings = list(
-                listings.exclude(id__in=selected_ids).order_by("?")[:remaining_slots]
+            non_offer_listings = _rotating_queryset_sample(
+                listings.exclude(_listing_offer_condition()),
+                limit=remaining_slots,
+                seed_parts=(store.id, "non-offers"),
             )
 
         picked_listings = offer_listings + non_offer_listings

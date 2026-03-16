@@ -10,6 +10,7 @@ from typing import Any, Optional
 from collections.abc import Callable
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from catalog.category_mapping import normalize_source_category
@@ -187,13 +188,62 @@ def _normalize_row(row: dict[str, Any], snapshot_at: datetime) -> Optional[dict[
     }
 
 
-def _find_listing(store: Store, sku: Optional[str], url: Optional[str]) -> Optional[StoreListing]:
-    listing = None
-    if sku:
-        listing = StoreListing.objects.filter(store=store, store_sku=sku).first()
-    if listing is None and url:
-        listing = StoreListing.objects.filter(store=store, url=url).first()
-    return listing
+def _preload_listing_lookup(
+    *,
+    store: Store,
+    normalized_rows: list[dict[str, Any]],
+) -> tuple[dict[str, StoreListing], dict[str, StoreListing]]:
+    sku_keys = {
+        sku
+        for row in normalized_rows
+        for sku in [row["store_sku"]]
+        if sku
+    }
+    url_keys = {
+        url
+        for row in normalized_rows
+        for url in [row["url"]]
+        if url
+    }
+    if not sku_keys and not url_keys:
+        return {}, {}
+
+    lookup_filter = Q()
+    if sku_keys:
+        lookup_filter |= Q(store_sku__in=sku_keys)
+    if url_keys:
+        lookup_filter |= Q(url__in=url_keys)
+
+    existing_listings = list(StoreListing.objects.filter(store=store).filter(lookup_filter))
+    listings_by_sku = {
+        listing.store_sku: listing
+        for listing in existing_listings
+        if listing.store_sku
+    }
+    listings_by_url = {
+        listing.url: listing
+        for listing in existing_listings
+        if listing.url
+    }
+    return listings_by_sku, listings_by_url
+
+
+def _remember_listing_lookup(
+    *,
+    listing: StoreListing,
+    listings_by_sku: dict[str, StoreListing],
+    listings_by_url: dict[str, StoreListing],
+    previous_sku: Optional[str] = None,
+    previous_url: Optional[str] = None,
+) -> None:
+    if previous_sku and previous_sku != listing.store_sku and listings_by_sku.get(previous_sku) is listing:
+        del listings_by_sku[previous_sku]
+    if previous_url and previous_url != listing.url and listings_by_url.get(previous_url) is listing:
+        del listings_by_url[previous_url]
+    if listing.store_sku:
+        listings_by_sku[listing.store_sku] = listing
+    if listing.url:
+        listings_by_url[listing.url] = listing
 
 
 def read_csv_rows(csv_path: str | Path) -> list[dict[str, Any]]:
@@ -217,6 +267,8 @@ def import_rows_for_store(
     summary = ImportSummary()
     changed_listing_ids: set[int] = set()
     seen_ids: set[int] = set()
+    normalized_rows: list[dict[str, Any]] = []
+    pending_price_history_rows: list[PriceHistory] = []
 
     store, _ = Store.objects.get_or_create(name=store_name)
     crawler_run = CrawlerRun.objects.create(
@@ -227,24 +279,38 @@ def import_rows_for_store(
     summary.crawler_run_id = crawler_run.id
 
     error_messages: list[str] = []
+    for row_number, raw in enumerate(rows, start=1):
+        normalized = _normalize_row(raw, snapshot_at=snapshot)
+        if normalized is None:
+            summary.errored_rows += 1
+            error_messages.append(f"row {row_number}: missing name/sku/url")
+            continue
+        normalized_rows.append(normalized)
 
     try:
         with transaction.atomic():
-            for row_number, raw in enumerate(rows, start=1):
-                normalized = _normalize_row(raw, snapshot_at=snapshot)
-                if normalized is None:
-                    summary.errored_rows += 1
-                    error_messages.append(f"row {row_number}: missing name/sku/url")
-                    continue
-
+            listings_by_sku, listings_by_url = _preload_listing_lookup(
+                store=store,
+                normalized_rows=normalized_rows,
+            )
+            for normalized in normalized_rows:
                 sku = normalized["store_sku"]
                 url = normalized["url"]
-                listing = _find_listing(store=store, sku=sku, url=url)
+                listing = listings_by_sku.get(sku) if sku else None
+                if listing is None and url:
+                    listing = listings_by_url.get(url)
                 if listing is None:
                     listing = StoreListing.objects.create(store=store, **normalized)
+                    _remember_listing_lookup(
+                        listing=listing,
+                        listings_by_sku=listings_by_sku,
+                        listings_by_url=listings_by_url,
+                    )
                     summary.created += 1
                     changed_listing_ids.add(listing.id)
                 else:
+                    previous_sku = listing.store_sku
+                    previous_url = listing.url
                     updated_fields = []
                     for field, value in normalized.items():
                         if getattr(listing, field) != value:
@@ -252,20 +318,32 @@ def import_rows_for_store(
                             updated_fields.append(field)
                     if updated_fields:
                         listing.save(update_fields=updated_fields)
+                        _remember_listing_lookup(
+                            listing=listing,
+                            listings_by_sku=listings_by_sku,
+                            listings_by_url=listings_by_url,
+                            previous_sku=previous_sku,
+                            previous_url=previous_url,
+                        )
                         summary.updated += 1
                         changed_listing_ids.add(listing.id)
                     else:
                         summary.unchanged += 1
 
                 seen_ids.add(listing.id)
+                pending_price_history_rows.append(
+                    PriceHistory(
+                        store_listing=listing,
+                        captured_at=snapshot,
+                        price=listing.final_price,
+                        unit_price=listing.final_unit_price,
+                    )
+                )
 
-                PriceHistory.objects.get_or_create(
-                    store_listing=listing,
-                    captured_at=snapshot,
-                    defaults={
-                        "price": listing.final_price,
-                        "unit_price": listing.final_unit_price,
-                    },
+            if pending_price_history_rows:
+                PriceHistory.objects.bulk_create(
+                    pending_price_history_rows,
+                    ignore_conflicts=True,
                 )
 
             summary.deactivated = StoreListing.objects.filter(
