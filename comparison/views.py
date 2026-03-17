@@ -33,6 +33,7 @@ from comparison.review_pages import (
 )
 from comparison.review_actions import approve_match_reviews, reject_match_reviews
 from comparison.view_helpers import (
+    listing_offer_label as _listing_offer_label,
     listing_offer_condition as _listing_offer_condition,
     product_quantity_label as _product_quantity_label,
     sale_icon_url as _sale_icon_url,
@@ -268,6 +269,8 @@ def product_offers(request, product_id: int):
         "offers": [
             {
                 "store": listing.store.name,
+                "store_display_name": _store_display_name(listing.store.name),
+                "store_icon_url": _store_icon_url(listing.store.name),
                 "listing_id": listing.id,
                 "store_name": listing.store_name,
                 "url": listing.url,
@@ -328,6 +331,16 @@ def product_offers(request, product_id: int):
                 ),
                 "unit_of_measure": listing.unit_of_measure,
                 "offer": listing.offer,
+                "discount_percent": listing.discount_percent,
+                "one_plus_one": listing.one_plus_one,
+                "two_plus_one": listing.two_plus_one,
+                "promo_text": listing.promo_text,
+                "offer_label": _listing_offer_label(listing),
+                "sale_icon_url": _sale_icon_url(
+                    discount_percent=listing.discount_percent,
+                    one_plus_one=listing.one_plus_one,
+                    two_plus_one=listing.two_plus_one,
+                ),
                 "price_profile_applies": price_profile_applies_to_store(
                     store_name=listing.store.name,
                     price_profile=selected_price_profile,

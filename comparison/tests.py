@@ -777,6 +777,38 @@ class ComparisonApiTests(TestCase):
         self.assertEqual(offer["effective_original_price"], "2.16")
         self.assertTrue(offer["price_profile_applies"])
 
+    def test_product_offers_endpoint_includes_offer_display_metadata(self):
+        store = Store.objects.create(name="ab")
+        product = Product.objects.create(canonical_name="Offer rich product")
+
+        listing = StoreListing.objects.create(
+            store=store,
+            store_sku="ab-offer-rich",
+            store_name="Offer rich product",
+            source_category="frouta-lachanika",
+            url="https://example.com/ab-offer-rich",
+            final_price=Decimal("3.50"),
+            discount_percent=25,
+            promo_text="Weekly deal",
+            offer=True,
+            product=product,
+            is_active=True,
+        )
+
+        response = self.client.get(reverse("product-offers", args=[product.id]))
+
+        self.assertEqual(response.status_code, 200)
+        offer = response.json()["offers"][0]
+        self.assertEqual(offer["listing_id"], listing.id)
+        self.assertEqual(offer["store_display_name"], "ΑΒ Βασιλόπουλος")
+        self.assertEqual(offer["store_icon_url"], f"{settings.MEDIA_URL}stores/ab.png")
+        self.assertEqual(offer["discount_percent"], 25)
+        self.assertFalse(offer["one_plus_one"])
+        self.assertFalse(offer["two_plus_one"])
+        self.assertEqual(offer["promo_text"], "Weekly deal")
+        self.assertEqual(offer["offer_label"], "-25%")
+        self.assertEqual(offer["sale_icon_url"], f"{settings.MEDIA_URL}discounts/discount-025.svg")
+
 
 class ComparisonHtmlViewsTests(TestCase):
     def _create_product_with_listing(
