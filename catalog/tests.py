@@ -130,6 +130,24 @@ class ProductImageTests(TestCase):
         self.assertTrue(product.image.name.endswith("existing.jpg"))
         mock_get.assert_not_called()
 
+    @patch("catalog.services.product_images.httpx.get")
+    def test_ignores_empty_image_downloads(self, mock_get):
+        listing = self._create_listing(image_url="https://cdn.example.com/image.jpg")
+        product = listing.product
+        response = Mock()
+        response.headers = {"Content-Type": "image/jpeg"}
+        response.content = b""
+        response.raise_for_status.return_value = None
+        mock_get.return_value = response
+
+        with self.settings(MEDIA_ROOT=self.media_root):
+            changed = ensure_product_image_from_listing(product=product, listing=listing)
+
+        product.refresh_from_db()
+        self.assertFalse(changed)
+        self.assertFalse(bool(product.image))
+        mock_get.assert_called_once()
+
 
 class SearchNormalizationTests(TestCase):
     def test_transliteration_generates_greeklish_form_for_greek_text(self):

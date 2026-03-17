@@ -67,6 +67,8 @@ def ensure_product_image_from_listing(
     extension = _image_extension_from_response(response, image_url=image_url)
     if extension is None:
         return False
+    if not response.content:
+        return False
 
     digest = hashlib.sha1(image_url.encode("utf-8")).hexdigest()[:12]
     filename = f"product-{product.id}-{digest}{extension}"
