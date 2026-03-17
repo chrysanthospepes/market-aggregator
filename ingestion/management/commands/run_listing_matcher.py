@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from ingestion.models import StoreListing
 from matching.matcher import match_store_listings
@@ -51,6 +51,13 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        if options["reconsider_matched"] and not options["include_matched"]:
+            raise CommandError("--reconsider-matched requires --include-matched.")
+        if options.get("limit") is not None and options["limit"] <= 0:
+            raise CommandError("--limit must be a positive integer.")
+        if options["progress_every"] <= 0:
+            raise CommandError("--progress-every must be a positive integer.")
+
         listing_ids = options.get("listing_id")
         only_unmatched = not options["include_matched"]
 

@@ -104,6 +104,38 @@ class RunAllDailyIngestionCommandTests(TestCase):
         self.assertEqual(observed_stores, ["ab", "bazaar", "mymarket"])
 
 
+class RunListingMatcherCommandTests(TestCase):
+    def test_reconsider_matched_requires_include_matched(self):
+        with patch("ingestion.management.commands.run_listing_matcher.match_store_listings") as mock_match:
+            with self.assertRaisesMessage(
+                CommandError,
+                "--reconsider-matched requires --include-matched.",
+            ):
+                call_command("run_listing_matcher", "--reconsider-matched")
+
+        mock_match.assert_not_called()
+
+    def test_limit_must_be_positive(self):
+        with patch("ingestion.management.commands.run_listing_matcher.match_store_listings") as mock_match:
+            with self.assertRaisesMessage(
+                CommandError,
+                "--limit must be a positive integer.",
+            ):
+                call_command("run_listing_matcher", "--limit", "0")
+
+        mock_match.assert_not_called()
+
+    def test_progress_every_must_be_positive(self):
+        with patch("ingestion.management.commands.run_listing_matcher.match_store_listings") as mock_match:
+            with self.assertRaisesMessage(
+                CommandError,
+                "--progress-every must be a positive integer.",
+            ):
+                call_command("run_listing_matcher", "--progress-every", "0")
+
+        mock_match.assert_not_called()
+
+
 class ImportPipelineTests(TestCase):
     def _write_csv(self, rows):
         headers = []
