@@ -13,6 +13,7 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from selectolax.parser import HTMLParser
 
+from catalog.search_normalizer import build_search_text
 from catalog.models import Category, CategoryAlias, Product, Store
 from comparison.models import MatchReview
 from crawlers import CRAWLER_MODULES, CRAWLER_RUN_ORDER
@@ -420,3 +421,24 @@ class ImportPipelineTests(TestCase):
         self.assertEqual(summary.matcher_review_created, 0)
         self.assertEqual(summary.matcher_created_products, 0)
         self.assertEqual(listing.product_id, target_product.id)
+
+
+class StoreListingModelTests(TestCase):
+    def test_save_updates_search_store_name_when_using_update_fields(self):
+        store = Store.objects.create(name="ab")
+        listing = StoreListing.objects.create(
+            store=store,
+            store_sku="search-store-name",
+            store_name="Fresh milk",
+            url="https://example.com/search-store-name",
+            final_price="1.20",
+        )
+
+        listing.store_name = "Φρεσκούλης Σαλάτα"
+        listing.save(update_fields=["store_name"])
+        listing.refresh_from_db()
+
+        self.assertEqual(
+            listing.search_store_name,
+            build_search_text("Φρεσκούλης Σαλάτα"),
+        )

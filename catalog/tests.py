@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 from django.core.files.base import ContentFile
 from django.test import TestCase
 
-from catalog.models import Product, Store
+from catalog.models import Category, CategoryAlias, Product, Store
 from catalog.search_normalizer import build_search_forms, build_search_text, transliterate_greek_to_latin
 from catalog.services.product_images import ensure_product_image_from_listing
 from ingestion.models import StoreListing
@@ -166,3 +166,24 @@ class SearchNormalizationTests(TestCase):
         text = build_search_text("freskoulis")
         self.assertIn("freskoulis", text)
         self.assertIn("freskulis", text)
+
+
+class CatalogModelBehaviorTests(TestCase):
+    def test_product_save_updates_search_name_when_using_update_fields(self):
+        product = Product.objects.create(canonical_name="Fresh milk")
+
+        product.canonical_name = "Φρεσκούλης Σαλάτα"
+        product.save(update_fields=["canonical_name"])
+        product.refresh_from_db()
+
+        self.assertEqual(product.search_name, build_search_text("Φρεσκούλης Σαλάτα"))
+
+    def test_category_alias_save_normalizes_source_slug(self):
+        category = Category.objects.create(name="Φρούτα", slug="frouta")
+
+        alias = CategoryAlias.objects.create(
+            source_slug=" /Freska_Froyta  Lachanika/ ",
+            category=category,
+        )
+
+        self.assertEqual(alias.source_slug, "freska-froyta-lachanika")
