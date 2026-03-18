@@ -234,7 +234,10 @@ For each eligible `StoreListing`, the matcher:
 
 ## Match Review Workflow
 
-Manual review is handled through Django admin on `MatchReview` and through the staff review queue at `/reviews/pending/`.
+Manual review is handled through Django admin on `MatchReview` and through two staff review queues:
+
+- `/reviews/pending/`
+- `/reviews/reported-listings/`
 
 ### Approve
 
@@ -284,6 +287,23 @@ Backfill command:
 - `/api/products/<id>/offers`
   - Returns product data plus all active linked store offers
 
+### Price Profiles
+
+Comparison pages and the offers API accept a `price_profile` query parameter.
+
+Current supported profile:
+
+- `kritikos_eligible_households`
+  - Applies an extra 10% discount to Kritikos listings only
+
+Useful local examples:
+
+```text
+/products/?price_profile=kritikos_eligible_households
+/products/123/?price_profile=kritikos_eligible_households
+/api/products/123/offers?price_profile=kritikos_eligible_households
+```
+
 ## Admin Coverage
 
 Registered in Django admin:
@@ -315,6 +335,13 @@ Targeted examples:
 ./.venv/bin/python manage.py test ingestion.tests --settings=config.settings_test
 ./.venv/bin/python manage.py test comparison.tests --settings=config.settings_test
 ./.venv/bin/python manage.py test catalog.tests --settings=config.settings_test
+```
+
+Single-class examples:
+
+```bash
+./.venv/bin/python manage.py test comparison.tests.ComparisonAdminConfigTests --settings=config.settings_test
+./.venv/bin/python manage.py test ingestion.tests.StoreListingModelTests --settings=config.settings_test
 ```
 
 Tests currently cover:
