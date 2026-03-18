@@ -8,8 +8,12 @@ from comparison.review_actions import approve_match_reviews, reject_match_review
 @admin.register(MatchReview)
 class MatchReviewAdmin(admin.ModelAdmin):
     list_display = ["id", "store_listing", "candidate_product", "score", "status"]
-    list_filter = ["status"]
+    list_filter = ["status", "store_listing__store"]
+    ordering = ["status", "-score", "id"]
+    list_select_related = ["store_listing__store", "candidate_product"]
     search_fields = [
+        "store_listing__store__name",
+        "store_listing__store_sku",
         "store_listing__store_name",
         "candidate_product__canonical_name",
         "notes",
@@ -70,8 +74,18 @@ class ListingProductReportAdmin(admin.ModelAdmin):
         "last_reported_at",
         "resolved_by",
     ]
-    list_filter = ["status", "store_listing__store"]
+    list_filter = ["status", "store_listing__store", "resolved_by"]
+    ordering = ["status", "-last_reported_at", "-id"]
+    list_select_related = [
+        "store_listing__store",
+        "reported_product",
+        "reassigned_product",
+        "resolved_by",
+    ]
+    date_hierarchy = "last_reported_at"
     search_fields = [
+        "store_listing__store__name",
+        "store_listing__store_sku",
         "store_listing__store_name",
         "reported_product__canonical_name",
         "reassigned_product__canonical_name",

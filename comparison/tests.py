@@ -10,7 +10,7 @@ from django.contrib.admin.sites import AdminSite
 from django.test import RequestFactory
 from django.urls import reverse
 from catalog.models import Category, CategoryAlias, Product, Store
-from comparison.admin import MatchReviewAdmin
+from comparison.admin import ListingProductReportAdmin, MatchReviewAdmin
 from comparison.models import ListingProductReport, MatchReview
 from comparison.pricing import (
     KRITIKOS_ELIGIBLE_HOUSEHOLD_PROFILE,
@@ -2308,6 +2308,39 @@ class MatchReviewAdminTests(TestCase):
         self.assertIsNotNone(listing.product_id)
         self.assertNotIn(listing.product_id, [candidate.id, other_candidate.id])
         self.assertEqual(Product.objects.count(), initial_product_count + 1)
+
+
+class ComparisonAdminConfigTests(TestCase):
+    def test_match_review_admin_exposes_store_filters_and_related_loading(self):
+        admin = MatchReviewAdmin(MatchReview, AdminSite())
+
+        self.assertEqual(admin.ordering, ["status", "-score", "id"])
+        self.assertEqual(
+            admin.list_select_related,
+            ["store_listing__store", "candidate_product"],
+        )
+        self.assertIn("store_listing__store", admin.list_filter)
+        self.assertIn("store_listing__store__name", admin.search_fields)
+        self.assertIn("store_listing__store_sku", admin.search_fields)
+
+    def test_listing_product_report_admin_exposes_store_filters_and_date_hierarchy(self):
+        admin = ListingProductReportAdmin(ListingProductReport, AdminSite())
+
+        self.assertEqual(admin.ordering, ["status", "-last_reported_at", "-id"])
+        self.assertEqual(admin.date_hierarchy, "last_reported_at")
+        self.assertEqual(
+            admin.list_select_related,
+            [
+                "store_listing__store",
+                "reported_product",
+                "reassigned_product",
+                "resolved_by",
+            ],
+        )
+        self.assertIn("store_listing__store", admin.list_filter)
+        self.assertIn("resolved_by", admin.list_filter)
+        self.assertIn("store_listing__store__name", admin.search_fields)
+        self.assertIn("store_listing__store_sku", admin.search_fields)
 
 
 class MatchReviewQueueViewTests(TestCase):
