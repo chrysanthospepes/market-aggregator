@@ -3,16 +3,7 @@ from django.db.models import Q
 from django.utils.translation import get_language
 
 from catalog.search_normalizer import build_search_text
-
-
-def _normalize_source_slug(value: str) -> str:
-    normalized = (value or "").strip().lower()
-    normalized = normalized.strip("/")
-    normalized = normalized.replace("_", "-")
-    normalized = " ".join(normalized.split()).replace(" ", "-")
-    while "--" in normalized:
-        normalized = normalized.replace("--", "-")
-    return normalized
+from catalog.source_categories import normalize_source_category
 
 
 class Store(models.Model):
@@ -178,7 +169,7 @@ class CategoryAlias(models.Model):
         ]
 
     def save(self, *args, **kwargs):
-        self.source_slug = _normalize_source_slug(self.source_slug)
+        self.source_slug = normalize_source_category(self.source_slug) or ""
         super().save(*args, **kwargs)
         from catalog.category_mapping import resolve_category_id_for_source
 

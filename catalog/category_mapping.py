@@ -4,16 +4,7 @@ from functools import lru_cache
 from typing import Optional
 
 from catalog.models import Category, CategoryAlias
-
-
-def normalize_source_category(value: Optional[str]) -> Optional[str]:
-    normalized = (value or "").strip().lower()
-    normalized = normalized.strip("/")
-    normalized = normalized.replace("_", "-")
-    normalized = " ".join(normalized.split()).replace(" ", "-")
-    while "--" in normalized:
-        normalized = normalized.replace("--", "-")
-    return normalized or None
+from catalog.source_categories import normalize_source_category
 
 
 @lru_cache(maxsize=4096)

@@ -9,6 +9,7 @@ from django.test import TestCase
 from catalog.models import Category, CategoryAlias, Product, Store
 from catalog.search_normalizer import build_search_forms, build_search_text, transliterate_greek_to_latin
 from catalog.services.product_images import ensure_product_image_from_listing
+from catalog.source_categories import normalize_source_category
 from ingestion.models import StoreListing
 from matching.normalizer import (
     build_normalized_key,
@@ -169,6 +170,13 @@ class SearchNormalizationTests(TestCase):
 
 
 class CatalogModelBehaviorTests(TestCase):
+    def test_normalize_source_category_standardizes_common_store_slug_variants(self):
+        self.assertEqual(
+            normalize_source_category(" /Freska_Froyta  Lachanika/ "),
+            "freska-froyta-lachanika",
+        )
+        self.assertIsNone(normalize_source_category("   "))
+
     def test_product_save_updates_search_name_when_using_update_fields(self):
         product = Product.objects.create(canonical_name="Fresh milk")
 
