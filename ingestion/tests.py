@@ -7,6 +7,7 @@ import tempfile
 from importlib import import_module
 from unittest.mock import patch
 
+from django.contrib.admin.sites import AdminSite
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import connection
@@ -21,6 +22,7 @@ from crawlers.sklavenitis.sklavenitis_category_listing import (
     detect_unit_of_measure,
     parse_listing_article,
 )
+from ingestion.admin import CrawlerRunAdmin, PriceHistoryAdmin, StoreListingAdmin
 from ingestion.models import CrawlerRun, PriceHistory, StoreListing
 from ingestion.services.importer import import_rows_for_store
 
@@ -464,3 +466,23 @@ class StoreListingModelTests(TestCase):
             listing.search_store_name,
             build_search_text("Φρεσκούλης Σαλάτα"),
         )
+
+
+class IngestionAdminConfigTests(TestCase):
+    def test_store_listing_admin_preloads_store_and_product(self):
+        admin = StoreListingAdmin(StoreListing, AdminSite())
+
+        self.assertEqual(admin.list_select_related, ["store", "product"])
+        self.assertIn("product", admin.list_filter)
+
+    def test_price_history_admin_preloads_listing_and_store(self):
+        admin = PriceHistoryAdmin(PriceHistory, AdminSite())
+
+        self.assertEqual(admin.list_select_related, ["store_listing__store"])
+        self.assertIn("store_listing__store__name", admin.search_fields)
+
+    def test_crawler_run_admin_preloads_store(self):
+        admin = CrawlerRunAdmin(CrawlerRun, AdminSite())
+
+        self.assertEqual(admin.list_select_related, ["store"])
+        self.assertIn("store", admin.list_filter)

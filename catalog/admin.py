@@ -19,6 +19,7 @@ class CategoryAdmin(admin.ModelAdmin):
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
     search_fields = ["canonical_name", "brand_normalized", "normalized_key"]
+    list_select_related = ["category"]
     list_display = [
         "id",
         "canonical_name",
@@ -34,5 +35,6 @@ class ProductAdmin(admin.ModelAdmin):
 @admin.register(CategoryAlias)
 class CategoryAliasAdmin(admin.ModelAdmin):
     search_fields = ["source_slug", "category__name", "category__name_en", "category__slug", "store__name"]
+    list_select_related = ["store", "category"]
     list_display = ["id", "store", "source_slug", "category"]
     list_filter = ["store", "category"]

@@ -3,9 +3,11 @@ import tempfile
 from decimal import Decimal
 from unittest.mock import Mock, patch
 
+from django.contrib.admin.sites import AdminSite
 from django.core.files.base import ContentFile
 from django.test import TestCase
 
+from catalog.admin import CategoryAliasAdmin, ProductAdmin
 from catalog.models import Category, CategoryAlias, Product, Store
 from catalog.search_normalizer import build_search_forms, build_search_text, transliterate_greek_to_latin
 from catalog.services.product_images import ensure_product_image_from_listing
@@ -195,3 +197,17 @@ class CatalogModelBehaviorTests(TestCase):
         )
 
         self.assertEqual(alias.source_slug, "freska-froyta-lachanika")
+
+
+class CatalogAdminConfigTests(TestCase):
+    def test_product_admin_preloads_category_in_changelist(self):
+        admin = ProductAdmin(Product, AdminSite())
+
+        self.assertEqual(admin.list_select_related, ["category"])
+        self.assertIn("category", admin.list_filter)
+
+    def test_category_alias_admin_preloads_store_and_category(self):
+        admin = CategoryAliasAdmin(CategoryAlias, AdminSite())
+
+        self.assertEqual(admin.list_select_related, ["store", "category"])
+        self.assertIn("store__name", admin.search_fields)
