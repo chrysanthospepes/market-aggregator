@@ -146,9 +146,35 @@ def build_listing_report_entry(report: ListingProductReport) -> dict[str, object
     }
 
 
+def _is_fallback_listing_name(listing: StoreListing) -> bool:
+    listing_name = (listing.store_name or "").strip()
+    if not listing_name:
+        return True
+
+    fallback_values = {
+        (listing.store_sku or "").strip(),
+        (listing.url or "").strip(),
+    }
+    fallback_values.discard("")
+    return listing_name in fallback_values
+
+
 def listing_report_default_candidate_query(report: ListingProductReport) -> str:
     listing = report.store_listing
-    for value in [listing.store_name, listing.store_brand, report.reported_product]:
+    candidate_values: list[object] = []
+    if not _is_fallback_listing_name(listing):
+        candidate_values.append(listing.store_name)
+    candidate_values.extend(
+        [
+            report.reported_product,
+            listing.product,
+            listing.store_brand,
+            listing.store_sku,
+            listing.url,
+        ]
+    )
+
+    for value in candidate_values:
         if isinstance(value, Product):
             if value.canonical_name:
                 return value.canonical_name

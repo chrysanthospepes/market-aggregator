@@ -16,6 +16,7 @@ from comparison.pricing import (
     KRITIKOS_ELIGIBLE_HOUSEHOLD_PROFILE,
     PRICE_PROFILE_PARAM,
 )
+from comparison.review_pages import listing_report_default_candidate_query
 from ingestion.models import StoreListing
 from matching.matcher import match_store_listings
 
@@ -2651,3 +2652,87 @@ class ListingReportQueueViewTests(TestCase):
         self.assertEqual(report.status, ListingProductReport.Status.DISMISSED)
         self.assertEqual(report.resolved_by_id, self.staff_user.id)
         self.assertContains(response, "Dismissed the listing report.")
+
+    def test_listing_report_detail_prefers_reported_product_for_fallback_listing_name(self):
+        self.client.force_login(self.staff_user)
+        store = Store.objects.create(name="mymarket")
+        reported_product = Product.objects.create(canonical_name="Canonical salad")
+        listing = StoreListing.objects.create(
+            store=store,
+            store_sku="fallback-sku",
+            store_name="fallback-sku",
+            store_brand="Fresh",
+            url="https://example.com/fallback-sku",
+            final_price=Decimal("2.20"),
+        )
+        report = ListingProductReport.objects.create(
+            store_listing=listing,
+            reported_product=reported_product,
+        )
+
+        response = self.client.get(reverse("listing-report-detail", args=[report.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["candidate_query"], "Canonical salad")
+
+
+class ListingReportDefaultCandidateQueryTests(TestCase):
+    def test_prefers_descriptive_listing_name(self):
+        store = Store.objects.create(name="sklavenitis")
+        reported_product = Product.objects.create(canonical_name="Reported salad")
+        listing = StoreListing.objects.create(
+            store=store,
+            store_sku="descriptive-sku",
+            store_name="Fresh salad 220g",
+            store_brand="Fresh",
+            url="https://example.com/descriptive-sku",
+            final_price=Decimal("2.10"),
+        )
+        report = ListingProductReport.objects.create(
+            store_listing=listing,
+            reported_product=reported_product,
+        )
+
+        self.assertEqual(
+            listing_report_default_candidate_query(report),
+            "Fresh salad 220g",
+        )
+
+    def test_skips_sku_fallback_name_in_favor_of_reported_product(self):
+        store = Store.objects.create(name="mymarket")
+        reported_product = Product.objects.create(canonical_name="Canonical salad")
+        listing = StoreListing.objects.create(
+            store=store,
+            store_sku="fallback-sku",
+            store_name="fallback-sku",
+            store_brand="Fresh",
+            url="https://example.com/fallback-sku",
+            final_price=Decimal("2.20"),
+        )
+        report = ListingProductReport.objects.create(
+            store_listing=listing,
+            reported_product=reported_product,
+        )
+
+        self.assertEqual(
+            listing_report_default_candidate_query(report),
+            "Canonical salad",
+        )
+
+    def test_skips_url_fallback_name_in_favor_of_brand(self):
+        store = Store.objects.create(name="ab")
+        fallback_url = "https://example.com/fallback-url"
+        listing = StoreListing.objects.create(
+            store=store,
+            store_sku="url-fallback-sku",
+            store_name=fallback_url,
+            store_brand="Fresh",
+            url=fallback_url,
+            final_price=Decimal("2.30"),
+        )
+        report = ListingProductReport.objects.create(store_listing=listing)
+
+        self.assertEqual(
+            listing_report_default_candidate_query(report),
+            "Fresh",
+        )
