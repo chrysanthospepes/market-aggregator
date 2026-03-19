@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from django.core.management import call_command
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from crawlers import CRAWLER_RUN_ORDER
 
@@ -29,6 +29,9 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        if options["max_pages"] <= 0:
+            raise CommandError("--max-pages must be a positive integer.")
+
         csv_dir = options.get("save_combined_csv_dir")
         csv_root = Path(csv_dir).expanduser() if csv_dir else None
 

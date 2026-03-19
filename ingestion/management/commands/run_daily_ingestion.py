@@ -56,6 +56,9 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        if options["max_pages"] <= 0:
+            raise CommandError("--max-pages must be a positive integer.")
+
         store = options["store"]
         module_path = CRAWLER_MODULES[store]
 

@@ -66,6 +66,16 @@ class SklavenitisCrawlerParsingTests(TestCase):
 
 
 class RunAllDailyIngestionCommandTests(TestCase):
+    def test_max_pages_must_be_positive(self):
+        with patch("ingestion.management.commands.run_all_daily_ingestion.call_command") as mock_call:
+            with self.assertRaisesMessage(
+                CommandError,
+                "--max-pages must be a positive integer.",
+            ):
+                call_command("run_all_daily_ingestion", "--max-pages", "0")
+
+        mock_call.assert_not_called()
+
     def test_runs_all_crawlers_in_expected_order(self):
         observed_calls: list[tuple[str, dict[str, object]]] = []
 
@@ -103,6 +113,18 @@ class RunAllDailyIngestionCommandTests(TestCase):
                 call_command("run_all_daily_ingestion")
 
         self.assertEqual(observed_stores, ["ab", "bazaar", "mymarket"])
+
+
+class RunDailyIngestionCommandTests(TestCase):
+    def test_max_pages_must_be_positive(self):
+        with patch("ingestion.management.commands.run_daily_ingestion.import_module") as mock_import:
+            with self.assertRaisesMessage(
+                CommandError,
+                "--max-pages must be a positive integer.",
+            ):
+                call_command("run_daily_ingestion", "--store", "ab", "--max-pages", "0")
+
+        mock_import.assert_not_called()
 
 
 class RunListingMatcherCommandTests(TestCase):
